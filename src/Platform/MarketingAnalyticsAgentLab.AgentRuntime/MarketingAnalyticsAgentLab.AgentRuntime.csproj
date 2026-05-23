@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <IsAspNetCoreProject>true</IsAspNetCoreProject>
+    <RootNamespace>MarketingAnalyticsAgentLab.AgentRuntime</RootNamespace>
+    <UserSecretsId>marketing-analytics-agent-lab-agent-runtime</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Scalar.AspNetCore" />
+    <PackageReference Include="Microsoft.Agents.AI" />
+    <PackageReference Include="Microsoft.Agents.AI.OpenAI" />
+    <PackageReference Include="Microsoft.Agents.AI.Workflows" />
+    <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="ModelContextProtocol" />
+    <PackageReference Include="Azure.AI.OpenAI" />
+    <PackageReference Include="Azure.Identity" />
+  </ItemGroup>
+
+  <ItemGroup Label="Microsoft Agent Framework DevUI (preview)">
+    <PackageReference Include="Microsoft.Agents.AI.Hosting" />
+    <PackageReference Include="Microsoft.Agents.AI.Hosting.OpenAI" />
+    <PackageReference Include="Microsoft.Agents.AI.DevUI" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\BuildingBlocks\MarketingAnalyticsAgentLab.ServiceDefaults\MarketingAnalyticsAgentLab.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\..\BuildingBlocks\MarketingAnalyticsAgentLab.Shared\MarketingAnalyticsAgentLab.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

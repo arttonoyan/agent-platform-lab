@@ -1,0 +1,26 @@
+<Solution>
+  <Folder Name="/BuildingBlocks/">
+    <Project Path="src/BuildingBlocks/MarketingAnalyticsAgentLab.ServiceDefaults/MarketingAnalyticsAgentLab.ServiceDefaults.csproj" />
+    <Project Path="src/BuildingBlocks/MarketingAnalyticsAgentLab.Shared/MarketingAnalyticsAgentLab.Shared.csproj" />
+  </Folder>
+  <Folder Name="/Platform/">
+    <Project Path="src/Platform/MarketingAnalyticsAgentLab.AiAssistantGateway/MarketingAnalyticsAgentLab.AiAssistantGateway.csproj" />
+    <Project Path="src/Platform/MarketingAnalyticsAgentLab.AgentRuntime/MarketingAnalyticsAgentLab.AgentRuntime.csproj" />
+    <Project Path="src/Platform/MarketingAnalyticsAgentLab.McpServer/MarketingAnalyticsAgentLab.McpServer.csproj" />
+    <Project Path="src/Platform/MarketingAnalyticsAgentLab.PluginRegistry/MarketingAnalyticsAgentLab.PluginRegistry.csproj" />
+    <Project Path="src/Platform/MarketingAnalyticsAgentLab.AppHost/MarketingAnalyticsAgentLab.AppHost.csproj" />
+  </Folder>
+  <Folder Name="/StandaloneApps/Marketing/">
+    <Project Path="src/StandaloneApps/Marketing/MarketingAnalyticsAgentLab.MarketingAnalytics.Api/MarketingAnalyticsAgentLab.MarketingAnalytics.Api.csproj" />
+    <Project Path="src/StandaloneApps/Marketing/MarketingAnalyticsAgentLab.CampaignManagement.Api/MarketingAnalyticsAgentLab.CampaignManagement.Api.csproj" />
+    <Project Path="src/StandaloneApps/Marketing/MarketingAnalyticsAgentLab.CustomerInsights.Api/MarketingAnalyticsAgentLab.CustomerInsights.Api.csproj" />
+    <Project Path="src/StandaloneApps/Marketing/MarketingAnalyticsAgentLab.Notification.Api/MarketingAnalyticsAgentLab.Notification.Api.csproj" />
+  </Folder>
+  <Folder Name="/solution-items/">
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path="nuget.config" />
+    <File Path="README.md" />
+  </Folder>
+</Solution>

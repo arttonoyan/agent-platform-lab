@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Sdk Name="Aspire.AppHost.Sdk" Version="13.3.2" />
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsAppHost>true</IsAppHost>
+    <IsAspireHost>true</IsAspireHost>
+    <RootNamespace>MarketingAnalyticsAgentLab.AppHost</RootNamespace>
+    <UserSecretsId>marketing-analytics-agent-lab-apphost</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.AppHost" />
+    <PackageReference Include="Aspire.Hosting.NodeJs" />
+  </ItemGroup>
+
+  <ItemGroup Label="Standalone applications (Marketing)">
+    <ProjectReference Include="..\..\StandaloneApps\Marketing\MarketingAnalyticsAgentLab.MarketingAnalytics.Api\MarketingAnalyticsAgentLab.MarketingAnalytics.Api.csproj" />
+    <ProjectReference Include="..\..\StandaloneApps\Marketing\MarketingAnalyticsAgentLab.CampaignManagement.Api\MarketingAnalyticsAgentLab.CampaignManagement.Api.csproj" />
+    <ProjectReference Include="..\..\StandaloneApps\Marketing\MarketingAnalyticsAgentLab.CustomerInsights.Api\MarketingAnalyticsAgentLab.CustomerInsights.Api.csproj" />
+    <ProjectReference Include="..\..\StandaloneApps\Marketing\MarketingAnalyticsAgentLab.Notification.Api\MarketingAnalyticsAgentLab.Notification.Api.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Label="Platform services">
+    <ProjectReference Include="..\MarketingAnalyticsAgentLab.PluginRegistry\MarketingAnalyticsAgentLab.PluginRegistry.csproj" />
+    <ProjectReference Include="..\MarketingAnalyticsAgentLab.McpServer\MarketingAnalyticsAgentLab.McpServer.csproj" />
+    <ProjectReference Include="..\MarketingAnalyticsAgentLab.AgentRuntime\MarketingAnalyticsAgentLab.AgentRuntime.csproj" />
+    <ProjectReference Include="..\MarketingAnalyticsAgentLab.AiAssistantGateway\MarketingAnalyticsAgentLab.AiAssistantGateway.csproj" />
+  </ItemGroup>
+
+</Project>

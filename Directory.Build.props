@@ -1,0 +1,24 @@
+<Project>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors>NU1903;CS1591;ASPIRECOMPUTE001;CA1716;CA1707;CA1812;CA1014;CA2007;CA1860;EXTEXP0001</WarningsNotAsErrors>
+    <AnalysisLevel>latest-default</AnalysisLevel>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <NoWarn>$(NoWarn);CA1014;CA1716;CA1707;CA1812;CA2007;CA1860;CA1304;CA1305;CA1310;CA1819;CA1822;CA1056;CA2227;CA1054;CA1031;CS1591;IDE0290;EXTEXP0001</NoWarn>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <Deterministic>true</Deterministic>
+    <Product>Marketing Analytics Agent POC</Product>
+    <Authors>ServiceTitan Marketing Engineering</Authors>
+    <Copyright>Copyright (c) ServiceTitan. All rights reserved.</Copyright>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(IsAspNetCoreProject)' == 'true' or '$(IsAppHost)' == 'true'">
+    <UserSecretsId>$(MSBuildProjectName.Replace(" ", "-"))-dev-secrets</UserSecretsId>
+  </PropertyGroup>
+
+</Project>
