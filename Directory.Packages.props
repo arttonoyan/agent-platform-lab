@@ -5,7 +5,8 @@
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
 
     <!-- Pinned versions (latest stable as of 2026-05) -->
-    <AspireVersion>13.3.2</AspireVersion>
+    <!-- Aspire 13.3.5: see aka.ms/aspire/update-latest for the 13.3 release notes. -->
+    <AspireVersion>13.3.5</AspireVersion>
     <AspireNodeJsVersion>9.5.2</AspireNodeJsVersion>
     <AgentFrameworkVersion>1.6.1</AgentFrameworkVersion>
     <McpVersion>1.3.0</McpVersion>
@@ -19,8 +20,12 @@
     <OpenTelemetryInstrumentationRuntimeVersion>1.15.1</OpenTelemetryInstrumentationRuntimeVersion>
     <EntityFrameworkCoreVersion>10.0.5</EntityFrameworkCoreVersion>
     <NpgsqlEFVersion>10.0.0</NpgsqlEFVersion>
+    <!-- Aspire.Npgsql.EntityFrameworkCore.PostgreSQL trails the main Aspire SDK line by
+         one minor (latest stable at the time of writing is 13.2.3); the hosting package
+         tracks the main Aspire version. Keep these two pinned separately so a future
+         bump to the EF Core client doesn't require touching AspireVersion. -->
     <AspireNpgsqlEFVersion>13.2.3</AspireNpgsqlEFVersion>
-    <AspirePostgresHostingVersion>13.1.3</AspirePostgresHostingVersion>
+    <AspirePostgresHostingVersion>$(AspireVersion)</AspirePostgresHostingVersion>
   </PropertyGroup>
 
   <ItemGroup Label="Aspire">

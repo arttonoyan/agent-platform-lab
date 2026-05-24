@@ -145,7 +145,7 @@ nuget.config                                            Forces nuget.org
 | Component                       | Version              |
 | ------------------------------- | -------------------- |
 | .NET SDK target                 | net10.0              |
-| .NET Aspire                     | 13.3.2               |
+| .NET Aspire                     | 13.3.5               |
 | Microsoft Agent Framework       | 1.6.1                |
 | `Microsoft.Agents.AI.DevUI`     | 1.6.1-preview        |
 | `Microsoft.Agents.AI.Workflows` | 1.6.1                |
