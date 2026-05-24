@@ -3,6 +3,7 @@ using Azure.AI.OpenAI;
 using Azure.Identity;
 using MarketingAnalyticsAgentLab.AgentRuntime.Options;
 using MarketingAnalyticsAgentLab.AgentRuntime.PluginRegistryClient;
+using MarketingAnalyticsAgentLab.RuntimeTelemetry.Chat;
 using MarketingAnalyticsAgentLab.Shared.Abstractions;
 using MarketingAnalyticsAgentLab.Shared.Agents;
 using MarketingAnalyticsAgentLab.Shared.Plugins;
@@ -165,8 +166,8 @@ public sealed class AgentLifecycleService(
             registry.Clear();
             foreach (var def in definitions)
             {
-                var (agent, descriptor, toolToPlugin) = BuildAgent(def, chatClient, mcpTools, pluginById);
-                registry.Replace(def.Name, descriptor, agent, toolToPlugin);
+                var (agent, descriptor, toolToPlugin, toolMetadata) = BuildAgent(def, chatClient, mcpTools, pluginById);
+                registry.Replace(def.Name, descriptor, agent, toolToPlugin, toolMetadata);
                 logger.LogInformation("Registered agent {Agent} with {Count} tools.", def.Name, descriptor.Tools.Count);
             }
         }
@@ -177,14 +178,20 @@ public sealed class AgentLifecycleService(
         }
     }
 
-    private (AIAgent agent, AgentDescriptor descriptor, IReadOnlyDictionary<string, string> toolToPlugin)
+    private (AIAgent agent,
+             AgentDescriptor descriptor,
+             IReadOnlyDictionary<string, string> toolToPlugin,
+             IReadOnlyDictionary<string, ToolEndpointMetadata> toolMetadata)
         BuildAgent(AgentDefinition def, IChatClient chatClient,
                    IReadOnlyList<McpClientTool> allMcpTools,
                    IReadOnlyDictionary<Guid, PluginDefinition> pluginById)
     {
         // Map every plugin tool name -> originating plugin display name so the runtime can
-        // attribute tool calls back to plugins in its response.
+        // attribute tool calls back to plugins in its response. Also capture HTTP method +
+        // path template so telemetry rows can render "which source endpoint did this tool
+        // hit?" without a second lookup.
         var allowedToolNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var toolMetadata = new Dictionary<string, ToolEndpointMetadata>(StringComparer.OrdinalIgnoreCase);
         var pluginNames = new List<string>();
         foreach (var pluginId in def.PluginIds)
         {
@@ -193,6 +200,10 @@ public sealed class AgentLifecycleService(
             foreach (var endpoint in plugin.Endpoints)
             {
                 allowedToolNames[endpoint.ToolName] = plugin.DisplayName;
+                toolMetadata[endpoint.ToolName] = new ToolEndpointMetadata(
+                    PluginName: plugin.DisplayName,
+                    Method: endpoint.Method,
+                    Path: endpoint.Path);
             }
         }
 
@@ -246,7 +257,7 @@ public sealed class AgentLifecycleService(
             Plugins: pluginNames,
             Tools: tools.Select(t => t.Name).ToArray());
 
-        return (agent, descriptor, allowedToolNames);
+        return (agent, descriptor, allowedToolNames, toolMetadata);
     }
 
     private IChatClient? TryCreateChatClient()
@@ -260,7 +271,13 @@ public sealed class AgentLifecycleService(
             : new AzureOpenAIClient(endpoint, new DefaultAzureCredential());
 
         IChatClient chat = openAi.GetChatClient(opts.Deployment).AsIChatClient();
+        // Order matters: token-capture middleware must wrap the inner client BEFORE the
+        // OpenTelemetry span starts, so the captured `UsageContent` updates are surfaced
+        // on the same response stream that the OTel exporter is observing. The agent
+        // runtime publishes a TokenUsageAccumulator on AsyncLocal for the duration of
+        // each agent run; this middleware folds every chat response's usage into it.
         chat = new ChatClientBuilder(chat)
+            .UseTokenUsageCapture()
             .UseOpenTelemetry(sourceName: "Microsoft.Agents.AI")
             .Build();
         return chat;

@@ -20,12 +20,22 @@ public sealed record AssistantInteractionContext(
     string? UserId,
     IReadOnlyDictionary<string, string>? Extras);
 
+/// <summary>
+/// Tool call captured during an agent run. The original LLM-visible <see cref="Tool"/>
+/// name + plugin attribution is augmented with the underlying OpenAPI source endpoint
+/// (<see cref="SourceMethod"/> + <see cref="SourcePath"/>) and an outcome (<see cref="Status"/>)
+/// so the AI Runtime Dashboard can render "tool calls by tool" and "tool calls by
+/// endpoint" breakdowns from a single feed without a second lookup.
+/// </summary>
 public sealed record AssistantToolCall(
     string Plugin,
     string Tool,
     string? ArgumentsJson,
     string? ResultPreview,
-    int? DurationMs);
+    int? DurationMs,
+    string? SourceMethod = null,
+    string? SourcePath = null,
+    string Status = "succeeded");
 
 public sealed record AssistantInteractionResponse(
     string ConversationId,
@@ -34,21 +44,36 @@ public sealed record AssistantInteractionResponse(
     string Message,
     IReadOnlyList<AssistantToolCall> ToolCalls,
     string? RouterReason,
-    string? TraceId);
+    string? TraceId,
+    /// <summary>Stable id the Gateway generated for this interaction. Survives downstream
+    /// systems and is the join key into the runtime telemetry store.</summary>
+    string? ExecutionId = null,
+    /// <summary>Model id reported by the chat client that ran this interaction
+    /// (e.g. <c>gpt-4o-mini</c>). Empty when blocked before the model was invoked.</summary>
+    string? Model = null,
+    int InputTokens = 0,
+    int OutputTokens = 0);
 
 /// <summary>
-/// Internal contract between Gateway → AgentRuntime. The runtime returns the final message
-/// plus the captured tool-call log with plugin attribution.
+/// Internal contract between Gateway → AgentRuntime. The Gateway propagates the
+/// <see cref="ExecutionId"/> so the runtime can stamp downstream spans + records with
+/// the same correlation id. The runtime returns the final message + tool calls plus
+/// the token usage it captured from the chat client.
 /// </summary>
 public sealed record AgentRunRequest(
     string Message,
     string ConversationId,
     string TenantId,
-    string? ContextJson);
+    string? ContextJson,
+    string? ExecutionId = null);
 
 public sealed record AgentRunResponse(
     string Message,
-    IReadOnlyList<AssistantToolCall> ToolCalls);
+    IReadOnlyList<AssistantToolCall> ToolCalls,
+    string Model = "",
+    int InputTokens = 0,
+    int OutputTokens = 0,
+    int LatencyMs = 0);
 
 /// <summary>
 /// Outcome of the <see cref="IAgentRouter"/>: which agent in the assistant's pool will execute

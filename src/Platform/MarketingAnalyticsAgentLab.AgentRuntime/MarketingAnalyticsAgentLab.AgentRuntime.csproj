@@ -27,6 +27,10 @@
   <ItemGroup>
     <ProjectReference Include="..\..\BuildingBlocks\MarketingAnalyticsAgentLab.ServiceDefaults\MarketingAnalyticsAgentLab.ServiceDefaults.csproj" />
     <ProjectReference Include="..\..\BuildingBlocks\MarketingAnalyticsAgentLab.Shared\MarketingAnalyticsAgentLab.Shared.csproj" />
+    <!-- RuntimeTelemetry is referenced for the IChatClient token-capture middleware only;
+         the agent runtime never writes to the telemetry DB itself (the Gateway owns
+         persistence). The EF transitive packages remain unused at runtime. -->
+    <ProjectReference Include="..\..\BuildingBlocks\MarketingAnalyticsAgentLab.RuntimeTelemetry\MarketingAnalyticsAgentLab.RuntimeTelemetry.csproj" />
   </ItemGroup>
 
 </Project>

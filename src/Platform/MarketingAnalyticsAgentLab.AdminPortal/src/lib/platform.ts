@@ -115,6 +115,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+
+  // ---- AI Runtime Telemetry ----
+  // Real execution events persisted by the AI Gateway after every interaction.
+  // Shape mirrors data/runtimeEvents.ts:ExecutionEvent so the dashboard can render
+  // straight from this feed; the mock in runtimeEvents.ts is now used only as a
+  // fallback when the gateway endpoint is unreachable (e.g. dev server warming up).
+  listExecutionEvents: (limit = 100) =>
+    fetchJson<ExecutionEventDto[]>(`${platformUrls.aiGateway()}/telemetry/events?limit=${limit}`),
+  getExecutionEvent: (executionId: string) =>
+    fetchJson<ExecutionEventDto>(`${platformUrls.aiGateway()}/telemetry/events/${encodeURIComponent(executionId)}`),
 };
 
 // ---- Wire types (kept loose to avoid duplicating C# enums) ----
@@ -285,4 +295,46 @@ export interface AssistantDefinition {
   defaultAgentName?: string | null;
   systemPreamble?: string | null;
   enabled: boolean;
+}
+
+/**
+ * Wire shape returned by the AI Gateway's GET /telemetry/events endpoint. Mirrors the
+ * C# ExecutionEventDto in MarketingAnalyticsAgentLab.RuntimeTelemetry.Contracts; do not
+ * rename fields without updating the backend at the same time. Field-by-field equivalent
+ * of the frontend ExecutionEvent in data/runtimeEvents.ts (sans the optional vectorSearch
+ * which is reserved for a future iteration).
+ */
+export interface ExecutionEventDto {
+  executionId: string;
+  timestamp: string;
+  tenantId: string;
+  userId?: string | null;
+  application: string;
+  assistantId: string;
+  agentId: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCost: number;
+  latencyMs: number;
+  status: 'succeeded' | 'failed' | 'blocked';
+  toolCalls: ExecutionToolCallDto[];
+  policy: PolicyResultDto;
+  routerReason?: string | null;
+  traceId?: string | null;
+}
+
+export interface ExecutionToolCallDto {
+  toolName: string;
+  sourceMethod: string;
+  sourcePath: string;
+  latencyMs: number;
+  status: 'succeeded' | 'failed' | 'denied';
+}
+
+export interface PolicyResultDto {
+  permissionResult: 'allowed' | 'denied' | 'skipped';
+  sensitiveFieldsFiltered: number;
+  approvalRequired: boolean;
+  blockedReason?: string | null;
 }

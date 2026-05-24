@@ -9,11 +9,16 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Scalar.AspNetCore" />
+    <!-- Aspire client integration for Postgres + EF Core. Picks up the connection string
+         that the AppHost wires via WithReference(telemetryDb), registers Npgsql with
+         OpenTelemetry, and adds the standard Aspire health check. -->
+    <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\BuildingBlocks\MarketingAnalyticsAgentLab.ServiceDefaults\MarketingAnalyticsAgentLab.ServiceDefaults.csproj" />
     <ProjectReference Include="..\..\BuildingBlocks\MarketingAnalyticsAgentLab.Shared\MarketingAnalyticsAgentLab.Shared.csproj" />
+    <ProjectReference Include="..\..\BuildingBlocks\MarketingAnalyticsAgentLab.RuntimeTelemetry\MarketingAnalyticsAgentLab.RuntimeTelemetry.csproj" />
   </ItemGroup>
 
 </Project>

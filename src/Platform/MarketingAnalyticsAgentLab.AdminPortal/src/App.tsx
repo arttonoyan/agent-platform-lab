@@ -1,5 +1,5 @@
 import { NavLink, Route, Routes } from 'react-router-dom';
-import { Activity, Bot, Cog, ExternalLink, FlaskConical, Sparkles, UploadCloud, Users, Wrench } from 'lucide-react';
+import { Activity, Bot, Cog, ExternalLink, FlaskConical, Gauge, Sparkles, UploadCloud, Users, Wrench } from 'lucide-react';
 import ApisPage from './pages/ApisPage';
 import ApiDetailPage from './pages/ApiDetailPage';
 import PluginsPage from './pages/PluginsPage';
@@ -7,13 +7,18 @@ import PluginDetailPage from './pages/PluginDetailPage';
 import AgentsPage from './pages/AgentsPage';
 import AssistantsPage from './pages/AssistantsPage';
 import ActivityPage from './pages/ActivityPage';
+import DashboardPage from './pages/DashboardPage';
 import SettingsPage from './pages/SettingsPage';
 import { platformUrls } from './lib/platform';
 
 // Nav uses the new terminology: "Tools" in the sidebar points at the Tool Sets list
 // (one Tool Set = an OpenAPI-derived group of callable AI tools). The legacy /plugins
 // routes are kept so existing bookmarks and persisted links keep working.
+//
+// "Dashboard" is the AI Runtime Dashboard: usage / cost / reliability / governance
+// rolled up from execution events. It's the new default landing route.
 const nav = [
+  { to: '/dashboard',  label: 'Dashboard',  icon: Gauge },
   { to: '/apis',       label: 'APIs',       icon: UploadCloud },
   { to: '/tools',      label: 'Tools',      icon: Wrench },
   { to: '/agents',     label: 'Agents',     icon: Bot },
@@ -69,7 +74,8 @@ export default function App() {
 
       <main className="flex-1 overflow-auto">
         <Routes>
-          <Route path="/"             element={<ApisPage />} />
+          <Route path="/"             element={<DashboardPage />} />
+          <Route path="/dashboard"    element={<DashboardPage />} />
           <Route path="/apis"         element={<ApisPage />} />
           <Route path="/apis/:id"     element={<ApiDetailPage />} />
           <Route path="/tools"        element={<PluginsPage />} />

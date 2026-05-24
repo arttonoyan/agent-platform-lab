@@ -2,6 +2,7 @@
   <Folder Name="/BuildingBlocks/">
     <Project Path="src/BuildingBlocks/MarketingAnalyticsAgentLab.ServiceDefaults/MarketingAnalyticsAgentLab.ServiceDefaults.csproj" />
     <Project Path="src/BuildingBlocks/MarketingAnalyticsAgentLab.Shared/MarketingAnalyticsAgentLab.Shared.csproj" />
+    <Project Path="src/BuildingBlocks/MarketingAnalyticsAgentLab.RuntimeTelemetry/MarketingAnalyticsAgentLab.RuntimeTelemetry.csproj" />
   </Folder>
   <Folder Name="/Platform/">
     <Project Path="src/Platform/MarketingAnalyticsAgentLab.AiAssistantGateway/MarketingAnalyticsAgentLab.AiAssistantGateway.csproj" />

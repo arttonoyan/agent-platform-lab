@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Text.Json;
 using MarketingAnalyticsAgentLab.AiAssistantGateway.Clients;
+using MarketingAnalyticsAgentLab.RuntimeTelemetry;
+using MarketingAnalyticsAgentLab.RuntimeTelemetry.Contracts;
 using MarketingAnalyticsAgentLab.ServiceDefaults;
 using MarketingAnalyticsAgentLab.Shared.Interaction;
 
@@ -38,6 +40,7 @@ public static class AssistantInteractionEndpoints
         IAssistantRegistryClient assistantRegistry,
         IAgentRuntimeClient runtime,
         IAgentRouter router,
+        IExecutionEventStore telemetry,
         ILogger<AgentRunResponse> logger,
         CancellationToken ct)
     {
@@ -54,10 +57,55 @@ public static class AssistantInteractionEndpoints
             ? Guid.NewGuid().ToString()
             : request.ConversationId;
 
+        // executionId is the join key that ties Gateway/Runtime/MCP spans + DB rows together.
+        // Generated here so even early-validation rejections (assistant not found) get an
+        // execution row that the dashboard can render.
+        var executionId = Guid.NewGuid().ToString("N");
+        var startedAt = DateTimeOffset.UtcNow;
+        var stopwatch = Stopwatch.StartNew();
+
         using var interaction = ActivitySource.StartActivity("AssistantInteraction", ActivityKind.Server);
         interaction?.SetTag("assistant.id", request.AssistantId);
         interaction?.SetTag("assistant.tenant_id", request.TenantId);
         interaction?.SetTag("conversation.id", conversationId);
+        interaction?.SetTag("execution.id", executionId);
+
+        // Helper closure that records one telemetry row regardless of which branch we
+        // exit from. Always called once per interaction so the dashboard sees blocked /
+        // not-found cases too, not just the happy path.
+        async Task PersistAsync(
+            string application,
+            string agentId,
+            string status,
+            string permissionResult,
+            string? blockedReason,
+            string? routerReason,
+            AgentRunResponse? run)
+        {
+            stopwatch.Stop();
+            var totalLatency = (int)stopwatch.ElapsedMilliseconds;
+            var record = new RecordExecutionRequest(
+                ExecutionId: executionId,
+                Timestamp: startedAt,
+                TenantId: string.IsNullOrWhiteSpace(request.TenantId) ? "(unknown)" : request.TenantId,
+                UserId: request.Context?.UserId,
+                Application: string.IsNullOrWhiteSpace(application) ? "(unknown)" : application,
+                AssistantId: request.AssistantId,
+                AgentId: agentId,
+                Model: run?.Model ?? string.Empty,
+                InputTokens: run?.InputTokens ?? 0,
+                OutputTokens: run?.OutputTokens ?? 0,
+                LatencyMs: run?.LatencyMs ?? totalLatency,
+                Status: status,
+                RouterReason: routerReason,
+                TraceId: Activity.Current?.Id,
+                PermissionResult: permissionResult,
+                SensitiveFieldsFiltered: 0,
+                ApprovalRequired: false,
+                BlockedReason: blockedReason,
+                ToolCalls: BuildToolCallRows(run));
+            await telemetry.RecordAsync(record, ct).ConfigureAwait(false);
+        }
 
         AssistantDefinitionLookup assistantLookup;
         using (ActivitySource.StartActivity("AssistantRegistry.Resolve", ActivityKind.Client))
@@ -66,13 +114,17 @@ public static class AssistantInteractionEndpoints
             if (assistant is null)
             {
                 interaction?.SetStatus(ActivityStatusCode.Error, "assistant.not_found");
-                return Results.NotFound(new { error = $"Assistant '{request.AssistantId}' not found." });
+                await PersistAsync("(unknown)", "(unresolved)", "blocked", "denied",
+                    blockedReason: "assistant-not-found", routerReason: null, run: null);
+                return Results.NotFound(new { error = $"Assistant '{request.AssistantId}' not found.", executionId });
             }
             if (!assistant.Enabled)
             {
                 interaction?.SetStatus(ActivityStatusCode.Error, "assistant.disabled");
+                await PersistAsync(assistant.Application, "(unresolved)", "blocked", "denied",
+                    blockedReason: "assistant-disabled", routerReason: null, run: null);
                 return Results.Json(
-                    new { error = $"Assistant '{request.AssistantId}' is registered but not yet enabled.", application = assistant.Application },
+                    new { error = $"Assistant '{request.AssistantId}' is registered but not yet enabled.", application = assistant.Application, executionId },
                     statusCode: 409);
             }
             interaction?.SetTag("assistant.application", assistant.Application);
@@ -83,6 +135,8 @@ public static class AssistantInteractionEndpoints
             if (candidates.Length == 0)
             {
                 interaction?.SetStatus(ActivityStatusCode.Error, "assistant.no_candidates");
+                await PersistAsync(assistant.Application, "(unresolved)", "failed", "allowed",
+                    blockedReason: null, routerReason: null, run: null);
                 return Results.Problem(
                     title: "No candidate agents for assistant.",
                     detail: $"Assistant '{assistant.AssistantId}' does not reference any registered agents.",
@@ -107,28 +161,42 @@ public static class AssistantInteractionEndpoints
             Message: request.Message,
             ConversationId: conversationId,
             TenantId: request.TenantId,
-            ContextJson: request.Context is null ? null : JsonSerializer.Serialize(request.Context));
+            ContextJson: request.Context is null ? null : JsonSerializer.Serialize(request.Context),
+            ExecutionId: executionId);
 
         AgentRunResponse run;
         using (var execution = ActivitySource.StartActivity("AgentRuntime.Execute", ActivityKind.Client))
         {
             execution?.SetTag("agent.name", resolved.AgentName);
+            execution?.SetTag("execution.id", executionId);
             try
             {
                 run = await runtime.RunAsync(resolved.AgentName, runRequest, ct);
                 execution?.SetTag("tool_calls.count", run.ToolCalls.Count);
+                execution?.SetTag("tokens.input",  run.InputTokens);
+                execution?.SetTag("tokens.output", run.OutputTokens);
+                execution?.SetTag("model.id",      run.Model);
             }
             catch (HttpRequestException ex)
             {
                 execution?.SetStatus(ActivityStatusCode.Error, ex.Message);
                 logger.LogError(ex, "AgentRuntime call failed for assistant {AssistantId} / resolved agent {AgentName}",
                     request.AssistantId, resolved.AgentName);
+                await PersistAsync(assistantLookup.Assistant.Application, resolved.AgentName, "failed", "allowed",
+                    blockedReason: null, routerReason: resolved.Reason, run: null);
                 return Results.Problem(
                     title: "AgentRuntime call failed.",
                     detail: ex.Message,
                     statusCode: 502);
             }
         }
+
+        // Final outcome classification. Coarse, on purpose: the dashboard summarises in three
+        // buckets (succeeded / failed / blocked); fine-grained reasons live in tool-call
+        // rows + blocked_reason.
+        var status = ClassifyOutcome(run);
+        await PersistAsync(assistantLookup.Assistant.Application, resolved.AgentName, status, "allowed",
+            blockedReason: null, routerReason: resolved.Reason, run: run);
 
         var response = new AssistantInteractionResponse(
             ConversationId: conversationId,
@@ -137,9 +205,50 @@ public static class AssistantInteractionEndpoints
             Message: run.Message,
             ToolCalls: run.ToolCalls,
             RouterReason: resolved.Reason,
-            TraceId: Activity.Current?.Id);
+            TraceId: Activity.Current?.Id,
+            ExecutionId: executionId,
+            Model: run.Model,
+            InputTokens: run.InputTokens,
+            OutputTokens: run.OutputTokens);
 
         return Results.Ok(response);
+    }
+
+    private static IReadOnlyList<RecordToolCallRequest> BuildToolCallRows(AgentRunResponse? run)
+    {
+        if (run is null || run.ToolCalls.Count == 0) return Array.Empty<RecordToolCallRequest>();
+
+        var rows = new List<RecordToolCallRequest>(run.ToolCalls.Count);
+        for (var i = 0; i < run.ToolCalls.Count; i++)
+        {
+            var tc = run.ToolCalls[i];
+            rows.Add(new RecordToolCallRequest(
+                Sequence: i,
+                ToolName: tc.Tool,
+                PluginName: tc.Plugin,
+                SourceMethod: tc.SourceMethod ?? string.Empty,
+                SourcePath: tc.SourcePath ?? string.Empty,
+                LatencyMs: tc.DurationMs ?? 0,
+                Status: string.IsNullOrEmpty(tc.Status) ? "succeeded" : tc.Status));
+        }
+        return rows;
+    }
+
+    /// <summary>
+    /// Maps an <see cref="AgentRunResponse"/> to the three dashboard buckets. Any denied
+    /// tool call short-circuits to <c>blocked</c>; any failed tool call to <c>failed</c>.
+    /// </summary>
+    private static string ClassifyOutcome(AgentRunResponse run)
+    {
+        if (run.ToolCalls.Any(t => string.Equals(t.Status, "denied", StringComparison.OrdinalIgnoreCase)))
+        {
+            return "blocked";
+        }
+        if (run.ToolCalls.Any(t => string.Equals(t.Status, "failed", StringComparison.OrdinalIgnoreCase)))
+        {
+            return "failed";
+        }
+        return "succeeded";
     }
 
     private sealed record AssistantDefinitionLookup(

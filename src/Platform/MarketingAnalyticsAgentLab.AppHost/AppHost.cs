@@ -10,6 +10,18 @@ var azureOpenAiKey        = builder.AddParameter("AzureOpenAIKey", secret: true)
 var azureOpenAiDeployment = builder.AddParameter("AzureOpenAIDeployment");
 
 // ---------------------------------------------------------------------------------
+// Persistence - Postgres database for AI runtime telemetry (execution events + tool
+// calls). pgAdmin is attached so operators can browse rows during demos.
+// The database name "aitelemetry" matches the connectionName the Gateway resolves via
+// AddNpgsqlDbContext<RuntimeTelemetryDbContext>("aitelemetry").
+// A data volume keeps history across AppHost restarts.
+// ---------------------------------------------------------------------------------
+var postgres = builder.AddPostgres("ai-postgres")
+    .WithDataVolume("ai-postgres-data")
+    .WithPgAdmin();
+var aiTelemetryDb = postgres.AddDatabase("aitelemetry");
+
+// ---------------------------------------------------------------------------------
 // Standalone applications - Marketing.
 // Each standalone app is an independent set of OpenAPI services that know nothing
 // about agents, the gateway, or the platform.
@@ -56,6 +68,9 @@ var agentRuntime = builder.AddProject<Projects.MarketingAnalyticsAgentLab_AgentR
 var aiGateway = builder.AddProject<Projects.MarketingAnalyticsAgentLab_AiAssistantGateway>("ai-gateway")
     .WithReference(agentRuntime).WaitFor(agentRuntime)
     .WithReference(pluginRegistry).WaitFor(pluginRegistry)
+    // AI runtime telemetry: connection string is injected under the resource name and
+    // resolved at startup by AddNpgsqlDbContext<RuntimeTelemetryDbContext>("aitelemetry").
+    .WithReference(aiTelemetryDb).WaitFor(aiTelemetryDb)
     .WithExternalHttpEndpoints();
 
 // ---------------------------------------------------------------------------------

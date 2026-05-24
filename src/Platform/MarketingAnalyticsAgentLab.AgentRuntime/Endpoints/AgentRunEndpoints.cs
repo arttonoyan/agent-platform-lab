@@ -4,9 +4,12 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using MarketingAnalyticsAgentLab.AgentRuntime.Agents;
+using MarketingAnalyticsAgentLab.AgentRuntime.Options;
+using MarketingAnalyticsAgentLab.RuntimeTelemetry.Chat;
 using MarketingAnalyticsAgentLab.Shared.Interaction;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Client;
 
 namespace MarketingAnalyticsAgentLab.AgentRuntime.Endpoints;
@@ -96,6 +99,7 @@ public static class AgentRunEndpoints
 
         agents.MapPost("/{name}/run", async (
             RuntimeAgentRegistry registry,
+            IOptions<AzureOpenAIOptions> openAiOptions,
             string name,
             AgentRunRequest request,
             CancellationToken ct) =>
@@ -105,50 +109,69 @@ public static class AgentRunEndpoints
                 return Results.NotFound(new { error = $"Agent '{name}' is not registered." });
             }
 
-            var toolToPlugin = registry.GetToolToPluginMap(name);
+            var toolMetadata = registry.GetToolMetadata(name);
             var collected = new List<AssistantToolCall>();
             var argsByCallId = new Dictionary<string, (string Tool, string ArgsJson, long StartedAtMs)>();
             var text = new StringBuilder();
             var sw = Stopwatch.StartNew();
 
-            await foreach (var update in agent.RunStreamingAsync(request.Message, cancellationToken: ct))
+            // Capture token usage from every IChatClient call made inside this agent run
+            // (including subsequent LLM turns triggered by tool results). The middleware
+            // wired into the chat client (UseTokenUsageCapture) reads this accumulator
+            // off AsyncLocal and folds in each response's usage details.
+            var usage = new TokenUsageAccumulator { ModelId = openAiOptions.Value.Deployment };
+            using (TokenUsageCapturingChatClient.Capture(usage))
             {
-                foreach (var content in update.Contents)
+                await foreach (var update in agent.RunStreamingAsync(request.Message, cancellationToken: ct))
                 {
-                    switch (content)
+                    foreach (var content in update.Contents)
                     {
-                        case TextContent t when !string.IsNullOrEmpty(t.Text):
-                            text.Append(t.Text);
-                            break;
-                        case FunctionCallContent call:
-                            var argsJson = call.Arguments is null ? null : JsonSerializer.Serialize(call.Arguments);
-                            argsByCallId[call.CallId] = (call.Name, argsJson ?? "{}", sw.ElapsedMilliseconds);
-                            break;
-                        case FunctionResultContent result:
-                            if (argsByCallId.TryGetValue(result.CallId, out var meta))
-                            {
-                                var plugin = toolToPlugin.TryGetValue(meta.Tool, out var p) ? p : "(unknown)";
-                                var resultPreview = result.Result?.ToString();
-                                if (resultPreview is { Length: > 240 })
+                        switch (content)
+                        {
+                            case TextContent t when !string.IsNullOrEmpty(t.Text):
+                                text.Append(t.Text);
+                                break;
+                            case FunctionCallContent call:
+                                var argsJson = call.Arguments is null ? null : JsonSerializer.Serialize(call.Arguments);
+                                argsByCallId[call.CallId] = (call.Name, argsJson ?? "{}", sw.ElapsedMilliseconds);
+                                break;
+                            case FunctionResultContent result:
+                                if (argsByCallId.TryGetValue(result.CallId, out var meta))
                                 {
-                                    resultPreview = resultPreview[..240] + "...";
+                                    toolMetadata.TryGetValue(meta.Tool, out var endpoint);
+                                    var resultPreview = result.Result?.ToString();
+                                    var status = ClassifyToolResult(resultPreview);
+                                    if (resultPreview is { Length: > 240 })
+                                    {
+                                        resultPreview = resultPreview[..240] + "...";
+                                    }
+                                    collected.Add(new AssistantToolCall(
+                                        Plugin: endpoint?.PluginName ?? "(unknown)",
+                                        Tool: meta.Tool,
+                                        ArgumentsJson: meta.ArgsJson,
+                                        ResultPreview: resultPreview,
+                                        DurationMs: (int)(sw.ElapsedMilliseconds - meta.StartedAtMs),
+                                        SourceMethod: endpoint?.Method,
+                                        SourcePath: endpoint?.Path,
+                                        Status: status));
                                 }
-                                collected.Add(new AssistantToolCall(
-                                    Plugin: plugin,
-                                    Tool: meta.Tool,
-                                    ArgumentsJson: meta.ArgsJson,
-                                    ResultPreview: resultPreview,
-                                    DurationMs: (int)(sw.ElapsedMilliseconds - meta.StartedAtMs)));
-                            }
-                            break;
+                                break;
+                        }
                     }
                 }
             }
 
-            return Results.Ok(new AgentRunResponse(Message: text.ToString(), ToolCalls: collected));
+            sw.Stop();
+            return Results.Ok(new AgentRunResponse(
+                Message: text.ToString(),
+                ToolCalls: collected,
+                Model: usage.ModelId,
+                InputTokens: usage.InputTokens,
+                OutputTokens: usage.OutputTokens,
+                LatencyMs: (int)sw.ElapsedMilliseconds));
         })
             .WithName("RunAgent")
-            .WithSummary("Run an agent and return the final message + captured tool calls with plugin attribution.");
+            .WithSummary("Run an agent and return the final message + captured tool calls with plugin attribution, model id, and token usage.");
 
         agents.MapPost("/{name}/run/stream", (
             RuntimeAgentRegistry registry,
@@ -198,5 +221,19 @@ public static class AgentRunEndpoints
             }
         }
         yield return new SseItem<AgentStreamFrame>(new AgentStreamFrame("done", null, null, null, null));
+    }
+
+    /// <summary>
+    /// Coarse status classification for a tool result string. The runtime sees only the
+    /// stringified result returned by MCP — failures are surfaced as JSON envelopes like
+    /// <c>{"error":"..."}</c> and policy denials as <c>{"error":"policy.denied", ...}</c>.
+    /// Mirrors the categories the dashboard renders so the Gateway can persist them as-is.
+    /// </summary>
+    private static string ClassifyToolResult(string? resultPreview)
+    {
+        if (string.IsNullOrEmpty(resultPreview)) return "succeeded";
+        if (resultPreview.Contains("policy.denied", StringComparison.OrdinalIgnoreCase)) return "denied";
+        if (resultPreview.StartsWith("{\"error\"", StringComparison.OrdinalIgnoreCase)) return "failed";
+        return "succeeded";
     }
 }
