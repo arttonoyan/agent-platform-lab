@@ -356,6 +356,9 @@ dist/
 .vite/
 .eslintcache
 
+# AI Tooling Platform OneAdmin BFF state (per-developer; OpenAPI sources, tool configs, audit)
+.mvp-state/
+
 # .NET Aspire local state
 .aspire/
 
