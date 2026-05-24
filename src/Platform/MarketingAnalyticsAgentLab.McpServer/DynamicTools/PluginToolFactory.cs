@@ -1,3 +1,4 @@
+using MarketingAnalyticsAgentLab.McpServer.Registry;
 using MarketingAnalyticsAgentLab.Shared.Plugins;
 using ModelContextProtocol.Server;
 
@@ -11,12 +12,13 @@ namespace MarketingAnalyticsAgentLab.McpServer.DynamicTools;
 public sealed class PluginToolFactory(
     IHttpClientFactory httpFactory,
     PluginPolicyEvaluator policy,
+    ExecutionLog executionLog,
     ILoggerFactory loggerFactory)
 {
     public RegisteredTool Build(PluginDefinition plugin, PluginEndpoint endpoint, Uri baseAddress)
     {
         var logger = loggerFactory.CreateLogger($"PluginTool.{plugin.Name}.{endpoint.ToolName}");
-        var function = new PluginAIFunction(plugin, endpoint, baseAddress, httpFactory, policy, logger);
+        var function = new PluginAIFunction(plugin, endpoint, baseAddress, httpFactory, policy, executionLog, logger);
         var tool = McpServerTool.Create(function, new McpServerToolCreateOptions
         {
             Name = endpoint.ToolName,

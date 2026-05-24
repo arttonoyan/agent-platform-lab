@@ -37,13 +37,22 @@ export default function AssistantsPage() {
     <>
       <PageHeader
         title="Assistants"
-        subtitle="AssistantRegistry - the public identities standalone-app clients call. One assistant per standalone app, fronting a pool of agents."
+        subtitle="Atlas-facing entry points. One assistant per standalone app, fronting a pool of agents."
         actions={
           <button className="btn" onClick={() => setEditing({ ...blank })}>
             <Plus size={14} /> New assistant
           </button>
         }
       />
+      <div className="px-8 pt-4">
+        <div className="rounded-lg border border-brand-100 bg-brand-50/40 px-4 py-3 text-sm text-brand-900">
+          <p className="font-medium">Assistants are the Atlas-facing entry point.</p>
+          <p className="mt-1 text-brand-800/80">
+            Atlas routes a user request to an <strong>Assistant</strong>. The Assistant routes to one or more
+            <strong> Agents</strong>. Agents call <strong>Tools</strong> from their attached Tool Sets.
+          </p>
+        </div>
+      </div>
       <div className="grid grid-cols-3 gap-6 p-8">
         <div className="space-y-2">
           {list.data?.map(a => (

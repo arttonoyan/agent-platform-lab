@@ -31,7 +31,7 @@ export default function ApisPage() {
     <>
       <PageHeader
         title="APIs"
-        subtitle="OpenAPI Importer - bring standalone-app APIs into the platform so their endpoints can become plugin tools."
+        subtitle="Import OpenAPI specs from internal Marketing APIs. Then select operations and create a Tool Set: API \u2192 operations \u2192 Tool Set."
       />
       <div className="space-y-6 p-8">
         <section>

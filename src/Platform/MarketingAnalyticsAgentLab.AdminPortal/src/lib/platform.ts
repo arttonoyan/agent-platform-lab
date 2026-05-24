@@ -101,6 +101,12 @@ export const api = {
     fetchJson<{ reloaded: boolean }>(`${platformUrls.agentRuntime()}/agents/reload`, { method: 'POST' }),
   listLiveAgents: () => fetchJson<LiveAgent[]>(`${platformUrls.agentRuntime()}/agents`),
   listLiveTools: () => fetchJson<LiveTool[]>(`${platformUrls.mcpServer()}/tools`),
+  /**
+   * Recent tool executions captured by the McpServer's in-memory ExecutionLog. Used by the
+   * Activity / Executions page to show "what just ran" without a full tracing pipeline.
+   */
+  listToolExecutions: (limit = 50) =>
+    fetchJson<ToolExecutionRecord[]>(`${platformUrls.mcpServer()}/executions?limit=${limit}`),
 
   // ---- Assistants ----
   listAssistants: () => fetchJson<AssistantDefinition[]>(`${platformUrls.pluginRegistry()}/assistants`),
@@ -254,6 +260,21 @@ export interface LiveTool {
   pluginName: string;
   description: string;
   inputParameters: string[];
+}
+export interface ToolExecutionRecord {
+  id: string;
+  occurredAt: string;
+  toolName: string;
+  pluginName: string;
+  method: string;
+  path: string;
+  agentName?: string | null;
+  argumentsPreview: string;
+  resultPreview: string;
+  statusCode: number;
+  durationMs: number;
+  status: string;
+  error?: string | null;
 }
 export interface AssistantDefinition {
   assistantId: string;

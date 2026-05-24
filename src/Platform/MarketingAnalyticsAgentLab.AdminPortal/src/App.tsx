@@ -1,5 +1,5 @@
 import { NavLink, Route, Routes } from 'react-router-dom';
-import { Activity, Bot, Cog, ExternalLink, FlaskConical, Plug, Sparkles, UploadCloud, Users } from 'lucide-react';
+import { Activity, Bot, Cog, ExternalLink, FlaskConical, Sparkles, UploadCloud, Users, Wrench } from 'lucide-react';
 import ApisPage from './pages/ApisPage';
 import ApiDetailPage from './pages/ApiDetailPage';
 import PluginsPage from './pages/PluginsPage';
@@ -10,9 +10,12 @@ import ActivityPage from './pages/ActivityPage';
 import SettingsPage from './pages/SettingsPage';
 import { platformUrls } from './lib/platform';
 
+// Nav uses the new terminology: "Tools" in the sidebar points at the Tool Sets list
+// (one Tool Set = an OpenAPI-derived group of callable AI tools). The legacy /plugins
+// routes are kept so existing bookmarks and persisted links keep working.
 const nav = [
   { to: '/apis',       label: 'APIs',       icon: UploadCloud },
-  { to: '/plugins',    label: 'Plugins',    icon: Plug },
+  { to: '/tools',      label: 'Tools',      icon: Wrench },
   { to: '/agents',     label: 'Agents',     icon: Bot },
   { to: '/assistants', label: 'Assistants', icon: Users },
   { to: '/activity',   label: 'Activity',   icon: Activity },
@@ -69,6 +72,8 @@ export default function App() {
           <Route path="/"             element={<ApisPage />} />
           <Route path="/apis"         element={<ApisPage />} />
           <Route path="/apis/:id"     element={<ApiDetailPage />} />
+          <Route path="/tools"        element={<PluginsPage />} />
+          <Route path="/tools/:id"    element={<PluginDetailPage />} />
           <Route path="/plugins"      element={<PluginsPage />} />
           <Route path="/plugins/:id"  element={<PluginDetailPage />} />
           <Route path="/agents"       element={<AgentsPage />} />

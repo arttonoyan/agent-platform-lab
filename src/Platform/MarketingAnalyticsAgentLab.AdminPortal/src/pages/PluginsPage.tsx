@@ -17,8 +17,8 @@ export default function PluginsPage() {
   return (
     <>
       <PageHeader
-        title="Plugins"
-        subtitle="Configured groupings of OpenAPI operations exposed as MCP tools to agents, with their own policies and permissions."
+        title="Tools"
+        subtitle="Tool Sets group OpenAPI operations from one API into callable AI tools. Configure them here, then attach to agents."
         actions={
           <div className="flex gap-1">
             {filters.map(f => (
@@ -35,19 +35,22 @@ export default function PluginsPage() {
       />
       <div className="space-y-2 p-8">
         {plugins.data?.map(p => (
-          <Link key={p.id} to={`/plugins/${p.id}`} className="card flex items-center justify-between px-5 py-3 hover:bg-slate-50">
+          <Link key={p.id} to={`/tools/${p.id}`} className="card flex items-center justify-between px-5 py-3 hover:bg-slate-50">
             <div>
               <div className="flex items-center gap-3">
                 <span className="text-sm font-semibold text-slate-900">{p.displayName}</span>
                 <StatusPill status={p.status} />
+                <span className="pill bg-slate-100 text-slate-600">Tool Set</span>
               </div>
               <div className="mt-1 text-xs text-slate-500">{p.description}</div>
-              <div className="mt-1 font-mono text-xs text-slate-400">{p.endpoints.length} endpoints</div>
+              <div className="mt-1 font-mono text-xs text-slate-400">
+                {p.endpoints.length} {p.endpoints.length === 1 ? 'tool' : 'tools'}
+              </div>
             </div>
           </Link>
         ))}
         {plugins.data?.length === 0 && (
-          <p className="text-sm text-slate-500">No plugins yet. Go to APIs and create one from an imported spec.</p>
+          <p className="text-sm text-slate-500">No Tool Sets yet. Open <strong>APIs</strong>, pick one or more operations, and click <strong>Create Tool Set</strong>.</p>
         )}
       </div>
     </>

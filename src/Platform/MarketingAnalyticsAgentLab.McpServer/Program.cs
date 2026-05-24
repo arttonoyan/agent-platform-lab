@@ -33,6 +33,7 @@ builder.Services.AddSingleton<PluginToolFactory>();
 builder.Services.AddSingleton<PluginPolicyEvaluator>();
 builder.Services.AddSingleton<InMemoryMcpToolRegistry>();
 builder.Services.AddSingleton<IMcpToolRegistry>(sp => sp.GetRequiredService<InMemoryMcpToolRegistry>());
+builder.Services.AddSingleton<ExecutionLog>();
 
 builder.Services.AddHostedService<DynamicPluginToolHost>();
 
@@ -63,6 +64,14 @@ app.MapGet("/tools", (IMcpToolRegistry registry, string? plugin) =>
         string.IsNullOrWhiteSpace(plugin) ? registry.List() : registry.ListByPlugin(plugin))
     .WithTags("Catalog")
     .WithSummary("List MCP tools currently live, optionally filtered by source plugin.");
+
+// Lightweight recent-executions feed for AdminPortal's Activity / Executions page.
+// Bounded in-memory window populated by every PluginAIFunction invocation. Replaceable
+// with a real execution-trace pipeline later without touching the UI.
+app.MapGet("/executions", (ExecutionLog log, int? limit)
+        => log.Snapshot(limit ?? 50))
+    .WithTags("Catalog")
+    .WithSummary("Recent MCP tool executions (newest first). Bounded to ExecutionLog.Capacity.");
 
 // Health/status endpoint (moved off "/" to avoid colliding with MapMcp's GET /).
 app.MapGet("/status", (DynamicToolStore store) => new

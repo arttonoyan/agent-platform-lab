@@ -49,7 +49,7 @@ export default function AgentsPage() {
     <>
       <PageHeader
         title="Agents"
-        subtitle="Lightweight agent metadata. Use the Microsoft Agent Framework DevUI for runtime testing, trace inspection, and workflow debugging."
+        subtitle="Agents attach published Tool Sets and tools; they don't create them. Use this page for name, instructions, model, attached Tool Sets, and routing hints."
         actions={
           <div className="flex gap-2">
             {devUiUrl && (
@@ -72,7 +72,8 @@ export default function AgentsPage() {
         <div className="rounded-lg border border-brand-100 bg-brand-50/40 px-4 py-3 text-sm text-brand-900">
           <p className="font-medium">Admin Portal manages metadata - DevUI runs the agents.</p>
           <p className="mt-1 text-brand-800/80">
-            Use this page to configure name, instructions, model, attached plugins, and routing hints.
+            Use this page to configure name, instructions, model, attached <strong>Tool Sets</strong>, and routing hints.
+            Agents only <em>use</em> published Tool Sets / tools - to create new tools go to <strong>APIs</strong> and then <strong>Tools</strong>.
             For interactive testing, trace inspection, and workflow visualization,
             <a href={devUiUrl} target="_blank" rel="noreferrer" className="ml-1 underline">open the DevUI dashboard</a>
             served in-process by the AgentRuntime.
@@ -106,7 +107,7 @@ export default function AgentsPage() {
                     <span className="font-mono">{a.modelDeployment}</span>
                   </div>
                   <div>
-                    <span className="font-semibold text-slate-700">Plugins:</span>{' '}
+                    <span className="font-semibold text-slate-700">Attached Tool Sets:</span>{' '}
                     {a.pluginIds.length === 0
                       ? <span className="text-slate-400">(none attached)</span>
                       : <span>{a.pluginIds.length}</span>}
@@ -171,7 +172,10 @@ export default function AgentsPage() {
               </label>
 
               <div>
-                <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Plugins</div>
+                <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Attached Tool Sets</div>
+                <p className="mt-1 text-xs text-slate-500">
+                  Pick from Tool Sets created on the <strong>Tools</strong> page. Only published Tool Sets are exposed at runtime.
+                </p>
                 <div className="mt-2 grid gap-1 md:grid-cols-2">
                   {plugins.data?.map(p => {
                     const checked = editing.pluginIds.includes(p.id);
@@ -187,11 +191,14 @@ export default function AgentsPage() {
                         />
                         <div>
                           <div className="font-medium text-slate-900">{p.displayName}</div>
-                          <div className="text-xs text-slate-500">{p.status} · {p.endpoints.length} tools</div>
+                          <div className="text-xs text-slate-500">{p.status} · {p.endpoints.length} {p.endpoints.length === 1 ? 'tool' : 'tools'}</div>
                         </div>
                       </label>
                     );
                   })}
+                  {plugins.data?.length === 0 && (
+                    <p className="text-xs text-slate-500">No Tool Sets exist yet. Create one from <strong>APIs</strong> first.</p>
+                  )}
                 </div>
               </div>
             </div>

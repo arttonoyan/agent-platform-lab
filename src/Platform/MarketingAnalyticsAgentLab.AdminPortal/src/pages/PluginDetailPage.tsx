@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, Check, Copy, Play, Save, Send, Sparkles, Wrench, X } from 'lucide-react';
+import { AlertTriangle, Bot, Check, Copy, Lock, Play, Save, Send, ShieldCheck, Sparkles, Wrench, X } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import StatusPill from '../components/StatusPill';
 import {
@@ -14,6 +14,12 @@ import {
 } from '../lib/platform';
 
 type Tab = 'operations' | 'auth' | 'permissions' | 'playground';
+
+// HTTP verbs that mutate upstream state. Surfaced as a "write" badge in the Operations
+// tab and gated behind an explicit confirmation in the HTTP Playground; the AI Playground
+// runs them unchanged because the LLM is already constrained by the agent's instructions.
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+const isWriteMethod = (method: string) => WRITE_METHODS.has(method.toUpperCase());
 
 export default function PluginDetailPage() {
   const { id = '' } = useParams();
@@ -49,6 +55,8 @@ export default function PluginDetailPage() {
 
   if (!draft) return <PageHeader title="Loading..." />;
 
+  const writeCount = draft.endpoints.filter(e => isWriteMethod(e.method)).length;
+
   return (
     <>
       <PageHeader
@@ -56,7 +64,18 @@ export default function PluginDetailPage() {
         subtitle={draft.description}
         actions={
           <div className="flex items-center gap-2">
+            <span className="pill bg-slate-100 text-slate-700">Tool Set</span>
             <StatusPill status={draft.status} />
+            {writeCount > 0 && (
+              <span className="pill bg-amber-100 text-amber-800" title="At least one operation can mutate upstream state.">
+                <AlertTriangle size={12} className="mr-1 inline" /> {writeCount} write {writeCount === 1 ? 'op' : 'ops'}
+              </span>
+            )}
+            {draft.permissions.requiresApproval && (
+              <span className="pill bg-violet-100 text-violet-800" title="Operator approval required before invocation.">
+                <ShieldCheck size={12} className="mr-1 inline" /> Approval required
+              </span>
+            )}
             {draft.status === 'Published' ? (
               <button className="btn-ghost" onClick={() => unpublish.mutate()} disabled={unpublish.isPending}>
                 <X size={14} /> Unpublish
@@ -98,48 +117,63 @@ export default function PluginDetailPage() {
 function OperationsTab({ draft, setDraft }: { draft: PluginDefinition; setDraft: (p: PluginDefinition) => void }) {
   return (
     <div className="space-y-3">
-      {draft.endpoints.map((e, idx) => (
-        <div key={e.operationId} className="card p-5">
-          <div className="flex items-center gap-2">
-            <span className="pill bg-slate-100 text-slate-700 font-mono">{e.method}</span>
-            <span className="font-mono text-sm text-slate-700">{e.path}</span>
-          </div>
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
-            <label className="block text-xs font-medium text-slate-600">
-              Tool name
-              <input className="input mt-1 font-mono" value={e.toolName}
-                     onChange={x => updateEndpoint(draft, setDraft, idx, { toolName: x.target.value })} />
-            </label>
-            <label className="block text-xs font-medium text-slate-600">
-              Tool description
-              <input className="input mt-1" value={e.toolDescription}
-                     onChange={x => updateEndpoint(draft, setDraft, idx, { toolDescription: x.target.value })} />
-            </label>
-          </div>
-          {e.parameters.length > 0 && (
-            <table className="mt-3 w-full text-xs">
-              <thead className="text-slate-500">
-                <tr>
-                  <th className="py-1 text-left">Parameter</th>
-                  <th>In</th>
-                  <th>Type</th>
-                  <th>Required</th>
-                </tr>
-              </thead>
-              <tbody className="text-slate-700">
-                {e.parameters.map(p => (
-                  <tr key={p.name + p.in} className="border-t border-slate-100">
-                    <td className="py-1 font-mono">{p.name}</td>
-                    <td className="text-center">{p.in}</td>
-                    <td className="text-center">{p.type}</td>
-                    <td className="text-center">{p.required ? 'yes' : 'no'}</td>
+      <div className="rounded-md border border-brand-100 bg-brand-50/50 px-4 py-3 text-xs text-brand-900">
+        Each selected OpenAPI operation becomes one callable AI tool. The <strong>Tool name</strong> and{' '}
+        <strong>Tool description</strong> are what the LLM sees when it picks a tool - keep them concrete and outcome-oriented.
+      </div>
+      {draft.endpoints.map((e, idx) => {
+        const write = isWriteMethod(e.method);
+        return (
+          <div key={e.operationId} className="card p-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`pill font-mono ${write ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}`}>{e.method}</span>
+              <span className="font-mono text-sm text-slate-700">{e.path}</span>
+              <span className={`pill ${write ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-800'}`}>
+                {write ? 'write' : 'read-only'}
+              </span>
+              {write && draft.permissions.requiresApproval && (
+                <span className="pill bg-violet-100 text-violet-800" title="Tool Set requires approval for invocations.">
+                  <ShieldCheck size={12} className="mr-1 inline" /> requires approval
+                </span>
+              )}
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <label className="block text-xs font-medium text-slate-600">
+                Tool name
+                <input className="input mt-1 font-mono" value={e.toolName}
+                       onChange={x => updateEndpoint(draft, setDraft, idx, { toolName: x.target.value })} />
+              </label>
+              <label className="block text-xs font-medium text-slate-600">
+                Tool description
+                <input className="input mt-1" value={e.toolDescription}
+                       onChange={x => updateEndpoint(draft, setDraft, idx, { toolDescription: x.target.value })} />
+              </label>
+            </div>
+            {e.parameters.length > 0 && (
+              <table className="mt-3 w-full text-xs">
+                <thead className="text-slate-500">
+                  <tr>
+                    <th className="py-1 text-left">Parameter</th>
+                    <th>In</th>
+                    <th>Type</th>
+                    <th>Required</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      ))}
+                </thead>
+                <tbody className="text-slate-700">
+                  {e.parameters.map(p => (
+                    <tr key={p.name + p.in} className="border-t border-slate-100">
+                      <td className="py-1 font-mono">{p.name}</td>
+                      <td className="text-center">{p.in}</td>
+                      <td className="text-center">{p.type}</td>
+                      <td className="text-center">{p.required ? 'yes' : 'no'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -176,8 +210,14 @@ function AuthTab({ draft, setDraft }: { draft: PluginDefinition; setDraft: (p: P
 }
 
 function PermissionsTab({ draft, setDraft }: { draft: PluginDefinition; setDraft: (p: PluginDefinition) => void }) {
+  const writeCount = draft.endpoints.filter(e => isWriteMethod(e.method)).length;
   return (
     <div className="card max-w-xl space-y-3 p-5">
+      <p className="text-xs text-slate-500">
+        Permissions and policies attached to this Tool Set apply to every tool inside it.
+        Read-only operations (GET) are safe to run unattended; write operations
+        (POST/PUT/PATCH/DELETE) should require approval.
+      </p>
       <label className="block text-xs font-medium text-slate-600">
         Allowed agents (comma-separated)
         <input className="input mt-1" value={draft.permissions.allowedAgents.join(', ')}
@@ -192,6 +232,13 @@ function PermissionsTab({ draft, setDraft }: { draft: PluginDefinition; setDraft
         <input type="checkbox" checked={draft.permissions.requiresApproval} onChange={e => setDraft({ ...draft, permissions: { ...draft.permissions, requiresApproval: e.target.checked } })} />
         Requires approval before each invocation
       </label>
+      {writeCount > 0 && !draft.permissions.requiresApproval && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <AlertTriangle size={12} className="mr-1 inline" />
+          This Tool Set has {writeCount} write {writeCount === 1 ? 'operation' : 'operations'}. Consider turning on
+          <strong> Requires approval</strong> before publishing.
+        </div>
+      )}
     </div>
   );
 }
@@ -250,7 +297,13 @@ function HttpPlayground({ plugin }: { plugin: PluginDefinition }) {
   const [result, setResult] = useState<PlaygroundResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [confirmWrite, setConfirmWrite] = useState(false);
   const op = plugin.endpoints.find(e => e.operationId === opId);
+  const write = !!op && isWriteMethod(op.method);
+  // For MVP, write operations only run after the operator ticks the explicit confirm box.
+  // The button stays disabled otherwise so the LLM-side execution flow (which has its own
+  // policy hooks) stays the primary path for mutations.
+  const canRun = !!op && !running && (!write || confirmWrite);
 
   async function run() {
     if (!op) return;
@@ -269,28 +322,54 @@ function HttpPlayground({ plugin }: { plugin: PluginDefinition }) {
     <div className="grid gap-6 lg:grid-cols-2">
       <div className="card p-5">
         <div className="card-header -mx-5 -mt-5 mb-4 px-5">Invoke</div>
+        <p className="mb-3 text-xs text-slate-500">
+          Issues the real HTTP request through the Tool Runtime against the imported API's
+          base URL. Use this to verify wire-level shape: path, params, headers, and auth.
+        </p>
         <label className="block text-xs font-medium text-slate-600">
           Operation
-          <select className="input mt-1" value={opId} onChange={e => setOpId(e.target.value)}>
+          <select className="input mt-1" value={opId} onChange={e => { setOpId(e.target.value); setConfirmWrite(false); }}>
             {plugin.endpoints.map(e => (
               <option key={e.operationId} value={e.operationId}>{e.method} {e.path}</option>
             ))}
           </select>
         </label>
+        {op && (
+          <div className="mt-2 flex items-center gap-2 text-xs">
+            <span className={`pill ${write ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-800'}`}>
+              {write ? 'write' : 'read-only'}
+            </span>
+            {write && (
+              <span className="text-amber-700">
+                <Lock size={12} className="mr-1 inline" />
+                This operation mutates upstream state. Confirm below before running.
+              </span>
+            )}
+          </div>
+        )}
         {op?.parameters.map(p => (
           <label key={p.name} className="mt-3 block text-xs font-medium text-slate-600">
             {p.name} <span className="text-slate-400">({p.in}, {p.type}{p.required ? ', required' : ''})</span>
             <input className="input mt-1" value={params[p.name] ?? ''} onChange={e => setParams({ ...params, [p.name]: e.target.value })} placeholder={p.description ?? ''} />
           </label>
         ))}
-        <button className="btn mt-4" onClick={run} disabled={running}>
-          <Play size={14} /> {running ? 'Running...' : 'Run'}
+        {write && (
+          <label className="mt-3 flex items-center gap-2 text-xs text-slate-700">
+            <input type="checkbox" checked={confirmWrite} onChange={e => setConfirmWrite(e.target.checked)} />
+            I understand this {op?.method} request will hit the real upstream API.
+          </label>
+        )}
+        <button className="btn mt-4" onClick={run} disabled={!canRun}>
+          <Play size={14} /> {running ? 'Running...' : write ? `Run ${op?.method}` : 'Run'}
         </button>
       </div>
       <div className="card p-5">
         <div className="card-header -mx-5 -mt-5 mb-4 px-5">Response</div>
         {error && <p className="text-sm text-rose-600">{error}</p>}
         {result && <ResponseViewer result={result} />}
+        {!error && !result && (
+          <p className="text-sm text-slate-500">Pick an operation, fill in parameters, and click <strong>Run</strong>.</p>
+        )}
       </div>
     </div>
   );
@@ -337,7 +416,7 @@ function AiPlayground({ plugin }: { plugin: PluginDefinition }) {
           />
         </label>
         <p className="mt-2 text-xs text-slate-500">
-          The LLM sees only this plugin's tools. The plugin does <strong>not</strong> need to be published.
+          The LLM sees only this Tool Set's tools. The Tool Set does <strong>not</strong> need to be published.
           Each tool is described to the LLM with the <strong>Tool name</strong> and <strong>Tool description</strong> you configured on the Operations tab.
         </p>
         <button className="btn mt-4" onClick={run} disabled={running || !message.trim()}>

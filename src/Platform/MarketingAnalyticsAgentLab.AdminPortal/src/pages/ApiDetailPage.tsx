@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Plug2 } from 'lucide-react';
+import { Wrench } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import { api } from '../lib/platform';
 
@@ -25,7 +25,7 @@ export default function ApiDetailPage() {
         apiSpecId: id,
         operationIds: Array.from(selected),
       }),
-    onSuccess: plugin => nav(`/plugins/${plugin.id}`),
+    onSuccess: plugin => nav(`/tools/${plugin.id}`),
   });
 
   const canCreate = useMemo(() => name.trim().length > 0 && selected.size > 0, [name, selected]);
@@ -70,19 +70,22 @@ export default function ApiDetailPage() {
         </div>
 
         <div className="card h-fit">
-          <div className="card-header">Create plugin</div>
+          <div className="card-header">Create Tool Set</div>
           <div className="space-y-3 p-5">
+            <p className="text-xs text-slate-500">
+              Each selected operation becomes one callable AI tool. The Tool Set groups them and owns auth, permissions, and publish lifecycle.
+            </p>
             <label className="block text-xs font-medium text-slate-600">
-              Plugin name
-              <input className="input mt-1" value={name} onChange={e => setName(e.target.value)} placeholder="MarketingAnalyticsPlugin" />
+              Tool Set name
+              <input className="input mt-1" value={name} onChange={e => setName(e.target.value)} placeholder="MarketingAnalyticsToolSet" />
             </label>
             <label className="block text-xs font-medium text-slate-600">
-              Description
+              Tool Set description
               <textarea className="input mt-1" rows={3} value={description} onChange={e => setDescription(e.target.value)} />
             </label>
-            <div className="text-xs text-slate-500">{selected.size} operations selected</div>
+            <div className="text-xs text-slate-500">{selected.size} {selected.size === 1 ? 'operation' : 'operations'} selected</div>
             <button className="btn w-full justify-center" disabled={!canCreate || create.isPending} onClick={() => create.mutate()}>
-              <Plug2 size={14} /> {create.isPending ? 'Creating...' : 'Create plugin'}
+              <Wrench size={14} /> {create.isPending ? 'Creating...' : 'Create Tool Set'}
             </button>
             {create.error && <p className="text-xs text-rose-600">{(create.error as Error).message}</p>}
           </div>
