@@ -1,5 +1,6 @@
 import { NavLink, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
-import { Activity, Bot, Cog, ExternalLink, FlaskConical, Gauge, Sparkles, Users, Wrench } from 'lucide-react';
+import { Activity, Bot, Cog, ExternalLink, FlaskConical, Gauge, Map, Sparkles, Users, Wrench } from 'lucide-react';
+import OverviewPage from './pages/OverviewPage';
 import ToolsPage from './pages/ToolsPage';
 import ApiDetailPage from './pages/ApiDetailPage';
 import EndpointDetailPage from './pages/EndpointDetailPage';
@@ -15,7 +16,12 @@ import { platformUrls } from './lib/platform';
 // that owns the full lifecycle from OpenAPI source → endpoints → Tool Sets. The
 // previous "API Catalog" top-level entry is gone. Agents only attach published Tool
 // Sets; Assistants front Atlas; Activity shows runtime events.
+//
+// "Overview" sits at the very top as the default landing page — a plain-language
+// explainer for first-time visitors (VPs, PMs, partner-team engineers) so they can
+// understand the platform in five minutes before diving into the operational pages.
 const nav = [
+  { to: '/overview',   label: 'Overview',   icon: Map },
   { to: '/dashboard',  label: 'Dashboard',  icon: Gauge },
   { to: '/tools',      label: 'Tools',      icon: Wrench },
   { to: '/agents',     label: 'Agents',     icon: Bot },
@@ -71,7 +77,8 @@ export default function App() {
 
       <main className="flex-1 overflow-auto">
         <Routes>
-          <Route path="/"          element={<DashboardPage />} />
+          <Route path="/"          element={<OverviewPage />} />
+          <Route path="/overview"  element={<OverviewPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
 
           {/* Unified Tools workspace */}
