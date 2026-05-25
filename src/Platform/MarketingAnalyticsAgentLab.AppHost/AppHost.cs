@@ -15,8 +15,17 @@ var azureOpenAiDeployment = builder.AddParameter("AzureOpenAIDeployment");
 // The database name "aitelemetry" matches the connectionName the Gateway resolves via
 // AddNpgsqlDbContext<RuntimeTelemetryDbContext>("aitelemetry").
 // A data volume keeps history across AppHost restarts.
+//
+// The Postgres password is wired through its own named parameter (rather than the
+// auto-generated "<resource-name>-password" Aspire creates by default) so renaming
+// the resource never desyncs the password from PGDATA in the persisted data volume.
+// Set or rotate it with:
+//   dotnet user-secrets --project src\Platform\MarketingAnalyticsAgentLab.AppHost ^
+//     set Parameters:PostgresPassword "<value>"
 // ---------------------------------------------------------------------------------
-var postgres = builder.AddPostgres("ai-postgres")
+var postgresPassword = builder.AddParameter("PostgresPassword", secret: true);
+
+var postgres = builder.AddPostgres("postgres-server", password: postgresPassword)
     .WithDataVolume("ai-postgres-data")
     .WithPgAdmin();
 var aiTelemetryDb = postgres.AddDatabase("aitelemetry");
