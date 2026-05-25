@@ -424,22 +424,24 @@ function csv(s: string): string[] {
 // Tool Playground tab
 // =====================================================================================
 
-type PlaygroundMode = 'http' | 'ai-simulated' | 'ai-real';
+type PlaygroundMode = 'http' | 'ai';
 
 /**
- * Tool Playground: lives at the Tool Set level. Three modes (per the IA spec):
+ * Tool Playground: lives at the Tool Set level. Two modes:
  *
- *   1. HTTP            - direct call through Tool Runtime, NO model involved. Mostly
- *                        used to verify the tool can execute end-to-end.
- *   2. AI (simulated)  - lightweight tool-selection test that does not consume model
- *                        budget; useful for sanity-checking tool names + descriptions
- *                        without involving the real LLM (today defaults to the same
- *                        backend path; flagged "simulated" so the operator can switch
- *                        once a simulator is wired in).
- *   3. AI (real model) - one-shot LLM call against this Tool Set's tools using the
- *                        model deployment displayed. Validates name + description guide
- *                        the LLM correctly. The model deployment, mode, selected tool,
- *                        generated input, and execution result are all visible.
+ *   1. HTTP - direct call through the Tool Runtime, NO model involved. Use it to verify
+ *             the tool can execute end-to-end (path, params, headers, auth) and as the
+ *             safe lane for write methods (with an explicit confirm tick).
+ *   2. AI   - one-shot LLM call against this Tool Set's tools, using the model
+ *             deployment configured on the AgentRuntime. Validates that the tool name +
+ *             description guide the LLM to pick the right tool, generate correct
+ *             arguments, and synthesise a useful reply.
+ *
+ * Earlier iterations of this UI also exposed an "AI (simulated)" mode. It was removed
+ * once we agreed it can't honestly predict what the real LLM will do - a heuristic
+ * simulator would only validate the heuristic, not the LLM-readiness of the tool
+ * descriptions. If we ever need cheap deterministic coverage of tool selection across
+ * many prompts, that belongs in a separate eval harness, not in this per-Tool-Set UI.
  */
 function ToolPlaygroundTab({ toolSet }: { toolSet: PluginDefinition }) {
   const [mode, setMode] = useState<PlaygroundMode>('http');
@@ -448,18 +450,15 @@ function ToolPlaygroundTab({ toolSet }: { toolSet: PluginDefinition }) {
     <div className="space-y-4">
       <ModeSwitch mode={mode} setMode={setMode} />
       {mode === 'http' && <HttpPlayground toolSet={toolSet} />}
-      {(mode === 'ai-simulated' || mode === 'ai-real') && (
-        <AiPlayground toolSet={toolSet} simulated={mode === 'ai-simulated'} />
-      )}
+      {mode === 'ai' && <AiPlayground toolSet={toolSet} />}
     </div>
   );
 }
 
 function ModeSwitch({ mode, setMode }: { mode: PlaygroundMode; setMode: (m: PlaygroundMode) => void }) {
   const modes: Array<{ id: PlaygroundMode; label: string; hint: string; Icon: typeof Play }> = [
-    { id: 'http',         label: 'HTTP',           hint: 'Direct HTTP call - no model involved.',                      Icon: Play },
-    { id: 'ai-simulated', label: 'AI (simulated)', hint: 'Tool-selection sanity check; no model budget consumed.',     Icon: Sparkles },
-    { id: 'ai-real',      label: 'AI (real model)',hint: 'Real LLM call against this Tool Set.',                       Icon: Bot },
+    { id: 'http', label: 'HTTP', hint: 'Direct HTTP call - no model involved.',           Icon: Play },
+    { id: 'ai',   label: 'AI',   hint: 'Real LLM call against this Tool Set\'s tools.',   Icon: Bot  },
   ];
   return (
     <div className="flex flex-wrap items-center gap-4">
@@ -574,15 +573,16 @@ function HttpPlayground({ toolSet }: { toolSet: PluginDefinition }) {
   );
 }
 
-function AiPlayground({ toolSet, simulated }: { toolSet: PluginDefinition; simulated: boolean }) {
+function AiPlayground({ toolSet }: { toolSet: PluginDefinition }) {
   const [message, setMessage] = useState(suggestedPrompt(toolSet));
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<AiPlaygroundResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Until the backend has a true tool-selection simulator the simulated mode shares
-  // the same /ai-playground endpoint; we surface the mode + the deployment name in the
-  // header so the operator knows which budget they are spending.
-  const modeLabel = simulated ? 'simulated' : 'real model';
+  // The AgentRuntime resolves the deployment from its own configuration (AzureOpenAI
+  // user-secret on the AppHost). We surface a placeholder here so the operator knows
+  // which knob to turn if they want a different model; once the playground endpoint
+  // echoes back the model that actually answered, this string should come from the
+  // response.
   const modelDeployment = '(agent runtime default)';
 
   async function run() {
@@ -603,7 +603,6 @@ function AiPlayground({ toolSet, simulated }: { toolSet: PluginDefinition; simul
     <div className="space-y-4">
       <div className="rounded-md border border-brand-100 bg-brand-50/50 px-4 py-3 text-xs text-brand-900">
         <div className="flex flex-wrap items-center gap-3">
-          <span><strong>Mode:</strong> {modeLabel}</span>
           <span><strong>Model deployment:</strong> <span className="font-mono">{modelDeployment}</span></span>
           <span><strong>Tool Set:</strong> <span className="font-mono">{toolSet.displayName}</span></span>
         </div>
