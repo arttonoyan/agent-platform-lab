@@ -1,33 +1,81 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Bot, Check, Copy, Lock, Play, Save, Send, ShieldCheck, Sparkles, Wrench, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  Bot,
+  Check,
+  ChevronRight,
+  Copy,
+  Lock,
+  Play,
+  Save,
+  Send,
+  ShieldCheck,
+  Sparkles,
+  Wrench,
+  X,
+} from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import StatusPill from '../components/StatusPill';
+import Tabs, { type TabSpec } from '../components/Tabs';
 import {
   api,
+  type AgentDefinition,
   type AiPlaygroundResponse,
   type AiPlaygroundToolCall,
   type PlaygroundResponse,
   type PluginDefinition,
   type PluginEndpoint,
 } from '../lib/platform';
+import { classifyService } from '../lib/catalog';
 
-type Tab = 'operations' | 'auth' | 'permissions' | 'playground';
+type Tab = 'tools' | 'auth' | 'permissions' | 'playground' | 'publish';
+const TAB_IDS: Tab[] = ['tools', 'auth', 'permissions', 'playground', 'publish'];
 
-// HTTP verbs that mutate upstream state. Surfaced as a "write" badge in the Operations
-// tab and gated behind an explicit confirmation in the HTTP Playground; the AI Playground
-// runs them unchanged because the LLM is already constrained by the agent's instructions.
+// HTTP verbs that mutate upstream state. Surfaced as a "write" badge in the Tools
+// tab and gated behind an explicit confirmation in the Tool Playground; the LLM
+// playground runs them unchanged because the LLM is already constrained by the
+// agent's instructions.
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const isWriteMethod = (method: string) => WRITE_METHODS.has(method.toUpperCase());
 
+/**
+ * Tool Set detail page. The Tool Set is the unit of governance: it owns tool names,
+ * descriptions, auth, permissions, and publish lifecycle.
+ *
+ * Tabs:
+ *   Tools        - one entry per OpenAPI operation → one callable AI tool.
+ *   Auth         - auth config applied to every tool in the set.
+ *   Permissions  - allowed agents/tenants + approval policy.
+ *   Playground   - Tool Playground (HTTP + optional simulated/real LLM modes).
+ *   Publish      - lifecycle: Draft → Testing → Published / Disabled.
+ *
+ * NOTE on attachment: a Tool Set surfaces "used by N agents" here, but never an
+ * "Attach to Agent" CTA. Agents own attachment; Tools owns lifecycle.
+ */
 export default function PluginDetailPage() {
   const { id = '' } = useParams();
+  const [params, setParams] = useSearchParams();
   const qc = useQueryClient();
-  const plugin = useQuery({ queryKey: ['plugin', id], queryFn: () => api.getPlugin(id) });
-  const [tab, setTab] = useState<Tab>('operations');
+
+  const toolSet = useQuery({ queryKey: ['plugin', id], queryFn: () => api.getPlugin(id) });
+  const agents = useQuery({ queryKey: ['agents'], queryFn: () => api.listAgents() });
+  const specs = useQuery({ queryKey: ['apis'], queryFn: () => api.listApiSpecs() });
+
+  const tabFromUrl = (params.get('tab') as Tab) ?? 'tools';
+  const tab: Tab = TAB_IDS.includes(tabFromUrl) ? tabFromUrl : 'tools';
+  function setTab(next: Tab) {
+    setParams(prev => {
+      const newParams = new URLSearchParams(prev);
+      if (next === 'tools') newParams.delete('tab');
+      else newParams.set('tab', next);
+      return newParams;
+    });
+  }
+
   const [draft, setDraft] = useState<PluginDefinition | null>(null);
-  useEffect(() => { if (plugin.data) setDraft(plugin.data); }, [plugin.data]);
+  useEffect(() => { if (toolSet.data) setDraft(toolSet.data); }, [toolSet.data]);
 
   const save = useMutation({
     mutationFn: () => {
@@ -43,7 +91,6 @@ export default function PluginDetailPage() {
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['plugin', id] }),
   });
-
   const publish = useMutation({
     mutationFn: () => api.publishPlugin(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['plugin', id] }),
@@ -53,9 +100,20 @@ export default function PluginDetailPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['plugin', id] }),
   });
 
-  if (!draft) return <PageHeader title="Loading..." />;
+  if (!draft) return <PageHeader title="Loading…" />;
 
   const writeCount = draft.endpoints.filter(e => isWriteMethod(e.method)).length;
+  const spec = specs.data?.find(s => s.id === draft.apiSpecId);
+  const sourceMeta = spec ? classifyService(spec.serviceName) : null;
+  const usingAgents = (agents.data ?? []).filter(a => a.pluginIds.includes(draft.id));
+
+  const tabs: TabSpec<Tab>[] = [
+    { id: 'tools',       label: 'Tools', count: draft.endpoints.length },
+    { id: 'auth',        label: 'Auth' },
+    { id: 'permissions', label: 'Permissions' },
+    { id: 'playground',  label: 'Playground' },
+    { id: 'publish',     label: 'Publish' },
+  ];
 
   return (
     <>
@@ -67,8 +125,8 @@ export default function PluginDetailPage() {
             <span className="pill bg-slate-100 text-slate-700">Tool Set</span>
             <StatusPill status={draft.status} />
             {writeCount > 0 && (
-              <span className="pill bg-amber-100 text-amber-800" title="At least one operation can mutate upstream state.">
-                <AlertTriangle size={12} className="mr-1 inline" /> {writeCount} write {writeCount === 1 ? 'op' : 'ops'}
+              <span className="pill bg-amber-100 text-amber-800" title="At least one tool can mutate upstream state.">
+                <AlertTriangle size={12} className="mr-1 inline" /> {writeCount} write {writeCount === 1 ? 'tool' : 'tools'}
               </span>
             )}
             {draft.permissions.requiresApproval && (
@@ -91,35 +149,112 @@ export default function PluginDetailPage() {
           </div>
         }
       />
-      <div className="px-8 pt-4">
-        <div className="flex gap-1 border-b border-slate-200">
-          {(['operations', 'auth', 'permissions', 'playground'] as Tab[]).map(t => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${tab === t ? 'border-brand-500 text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
-            >
-              {t.charAt(0).toUpperCase() + t.slice(1)}
-            </button>
-          ))}
-        </div>
+      <div className="px-8 pt-3">
+        <Breadcrumbs name={draft.displayName} />
+        <UsageStrip toolSet={draft} usingAgents={usingAgents} spec={spec ?? null} sourceMeta={sourceMeta} />
+        <Tabs<Tab> tabs={tabs} active={tab} onChange={setTab} className="mt-4" />
       </div>
       <div className="p-8">
-        {tab === 'operations' && <OperationsTab draft={draft} setDraft={setDraft} />}
+        {tab === 'tools' && <ToolsTab draft={draft} setDraft={setDraft} />}
         {tab === 'auth' && <AuthTab draft={draft} setDraft={setDraft} />}
         {tab === 'permissions' && <PermissionsTab draft={draft} setDraft={setDraft} />}
-        {tab === 'playground' && <PlaygroundTab plugin={draft} />}
+        {tab === 'playground' && <ToolPlaygroundTab toolSet={draft} />}
+        {tab === 'publish' && (
+          <PublishTab
+            toolSet={draft}
+            usingAgents={usingAgents}
+            onPublish={() => publish.mutate()}
+            onUnpublish={() => unpublish.mutate()}
+            publishing={publish.isPending}
+            unpublishing={unpublish.isPending}
+          />
+        )}
       </div>
     </>
   );
 }
 
-function OperationsTab({ draft, setDraft }: { draft: PluginDefinition; setDraft: (p: PluginDefinition) => void }) {
+function Breadcrumbs({ name }: { name: string }) {
+  return (
+    <nav className="flex flex-wrap items-center gap-1 text-xs text-slate-500" aria-label="Breadcrumb">
+      <Link to="/tools" className="hover:text-slate-700">Tools</Link>
+      <ChevronRight size={12} className="text-slate-300" />
+      <Link to="/tools?tab=tool-sets" className="hover:text-slate-700">Tool Sets</Link>
+      <ChevronRight size={12} className="text-slate-300" />
+      <span className="text-slate-700">{name}</span>
+    </nav>
+  );
+}
+
+/**
+ * Compact usage strip beneath the breadcrumbs. Surfaces the "is anyone using this?"
+ * question every operator asks before publishing or unpublishing. Per the IA rule we
+ * never expose an "Attach to Agent" button here — the operator clicks through to the
+ * Agents page to manage attachment.
+ */
+function UsageStrip({
+  toolSet,
+  usingAgents,
+  spec,
+  sourceMeta,
+}: {
+  toolSet: PluginDefinition;
+  usingAgents: AgentDefinition[];
+  spec: { id: string; displayName: string } | null;
+  sourceMeta: ReturnType<typeof classifyService> | null;
+}) {
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600">
+      <span>
+        <span className="font-semibold text-slate-700">Tools:</span> {toolSet.endpoints.length}
+      </span>
+      <span>
+        <span className="font-semibold text-slate-700">Source API:</span>{' '}
+        {spec ? (
+          <Link to={`/tools/sources/${spec.id}`} className="text-brand-700 hover:text-brand-900">
+            {spec.displayName}
+          </Link>
+        ) : (
+          <span className="text-slate-400">(unknown)</span>
+        )}
+      </span>
+      {sourceMeta && (
+        <span>
+          <span className="font-semibold text-slate-700">Owner:</span> {sourceMeta.ownerTeam}
+        </span>
+      )}
+      <span>
+        <span className="font-semibold text-slate-700">Used by:</span>{' '}
+        {usingAgents.length === 0 ? (
+          <span className="text-slate-400">no agents</span>
+        ) : (
+          <>
+            <span>
+              <Bot size={11} className="mr-1 inline text-slate-400" />
+              {usingAgents.length} {usingAgents.length === 1 ? 'agent' : 'agents'} (
+              {usingAgents.map(a => a.displayName).join(', ')})
+            </span>
+            <Link to="/agents" className="ml-2 text-brand-700 hover:text-brand-900">
+              Manage in Agents →
+            </Link>
+          </>
+        )}
+      </span>
+    </div>
+  );
+}
+
+// =====================================================================================
+// Tools tab
+// =====================================================================================
+
+function ToolsTab({ draft, setDraft }: { draft: PluginDefinition; setDraft: (p: PluginDefinition) => void }) {
   return (
     <div className="space-y-3">
       <div className="rounded-md border border-brand-100 bg-brand-50/50 px-4 py-3 text-xs text-brand-900">
         Each selected OpenAPI operation becomes one callable AI tool. The <strong>Tool name</strong> and{' '}
-        <strong>Tool description</strong> are what the LLM sees when it picks a tool - keep them concrete and outcome-oriented.
+        <strong>Tool description</strong> are what the LLM sees when it picks a tool — keep them concrete
+        and outcome-oriented. Tool names must be unique within a Tool Set.
       </div>
       {draft.endpoints.map((e, idx) => {
         const write = isWriteMethod(e.method);
@@ -131,22 +266,31 @@ function OperationsTab({ draft, setDraft }: { draft: PluginDefinition; setDraft:
               <span className={`pill ${write ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-800'}`}>
                 {write ? 'write' : 'read-only'}
               </span>
-              {write && draft.permissions.requiresApproval && (
-                <span className="pill bg-violet-100 text-violet-800" title="Tool Set requires approval for invocations.">
-                  <ShieldCheck size={12} className="mr-1 inline" /> requires approval
+              {write && (
+                <span
+                  className="pill bg-violet-100 text-violet-800"
+                  title="Write tools require approval before invocation; disabled for MVP execution."
+                >
+                  <ShieldCheck size={12} className="mr-1 inline" /> Requires approval
                 </span>
               )}
             </div>
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               <label className="block text-xs font-medium text-slate-600">
                 Tool name
-                <input className="input mt-1 font-mono" value={e.toolName}
-                       onChange={x => updateEndpoint(draft, setDraft, idx, { toolName: x.target.value })} />
+                <input
+                  className="input mt-1 font-mono"
+                  value={e.toolName}
+                  onChange={x => updateEndpoint(draft, setDraft, idx, { toolName: x.target.value })}
+                />
               </label>
               <label className="block text-xs font-medium text-slate-600">
                 Tool description
-                <input className="input mt-1" value={e.toolDescription}
-                       onChange={x => updateEndpoint(draft, setDraft, idx, { toolDescription: x.target.value })} />
+                <input
+                  className="input mt-1"
+                  value={e.toolDescription}
+                  onChange={x => updateEndpoint(draft, setDraft, idx, { toolDescription: x.target.value })}
+                />
               </label>
             </div>
             {e.parameters.length > 0 && (
@@ -178,7 +322,12 @@ function OperationsTab({ draft, setDraft }: { draft: PluginDefinition; setDraft:
   );
 }
 
-function updateEndpoint(draft: PluginDefinition, setDraft: (p: PluginDefinition) => void, idx: number, patch: Partial<PluginEndpoint>) {
+function updateEndpoint(
+  draft: PluginDefinition,
+  setDraft: (p: PluginDefinition) => void,
+  idx: number,
+  patch: Partial<PluginEndpoint>,
+) {
   const next = [...draft.endpoints];
   next[idx] = { ...next[idx], ...patch };
   setDraft({ ...draft, endpoints: next });
@@ -189,7 +338,11 @@ function AuthTab({ draft, setDraft }: { draft: PluginDefinition; setDraft: (p: P
     <div className="card max-w-xl space-y-3 p-5">
       <label className="block text-xs font-medium text-slate-600">
         Type
-        <select className="input mt-1" value={draft.auth.type} onChange={e => setDraft({ ...draft, auth: { ...draft.auth, type: e.target.value as any } })}>
+        <select
+          className="input mt-1"
+          value={draft.auth.type}
+          onChange={e => setDraft({ ...draft, auth: { ...draft.auth, type: e.target.value as any } })}
+        >
           <option value="None">None</option>
           <option value="ApiKey">ApiKey</option>
           <option value="Bearer">Bearer</option>
@@ -198,11 +351,21 @@ function AuthTab({ draft, setDraft }: { draft: PluginDefinition; setDraft: (p: P
       </label>
       <label className="block text-xs font-medium text-slate-600">
         Header name
-        <input className="input mt-1" value={draft.auth.headerName ?? ''} onChange={e => setDraft({ ...draft, auth: { ...draft.auth, headerName: e.target.value } })} placeholder="X-Api-Key" />
+        <input
+          className="input mt-1"
+          value={draft.auth.headerName ?? ''}
+          onChange={e => setDraft({ ...draft, auth: { ...draft.auth, headerName: e.target.value } })}
+          placeholder="X-Api-Key"
+        />
       </label>
       <label className="block text-xs font-medium text-slate-600">
         Secret env-var name
-        <input className="input mt-1" value={draft.auth.secretName ?? ''} onChange={e => setDraft({ ...draft, auth: { ...draft.auth, secretName: e.target.value } })} placeholder="ANALYTICS_API_KEY" />
+        <input
+          className="input mt-1"
+          value={draft.auth.secretName ?? ''}
+          onChange={e => setDraft({ ...draft, auth: { ...draft.auth, secretName: e.target.value } })}
+          placeholder="ANALYTICS_API_KEY"
+        />
       </label>
       <p className="text-xs text-slate-500">For the demo, secrets are read from process env vars on the McpServer host.</p>
     </div>
@@ -214,28 +377,38 @@ function PermissionsTab({ draft, setDraft }: { draft: PluginDefinition; setDraft
   return (
     <div className="card max-w-xl space-y-3 p-5">
       <p className="text-xs text-slate-500">
-        Permissions and policies attached to this Tool Set apply to every tool inside it.
-        Read-only operations (GET) are safe to run unattended; write operations
-        (POST/PUT/PATCH/DELETE) should require approval.
+        Permissions and policies attached to this Tool Set apply to every tool inside it. Read-only
+        operations (GET) are safe to run unattended; write operations (POST/PUT/PATCH/DELETE)
+        should require approval and are disabled for execution in the MVP.
       </p>
       <label className="block text-xs font-medium text-slate-600">
         Allowed agents (comma-separated)
-        <input className="input mt-1" value={draft.permissions.allowedAgents.join(', ')}
-               onChange={e => setDraft({ ...draft, permissions: { ...draft.permissions, allowedAgents: csv(e.target.value) } })} />
+        <input
+          className="input mt-1"
+          value={draft.permissions.allowedAgents.join(', ')}
+          onChange={e => setDraft({ ...draft, permissions: { ...draft.permissions, allowedAgents: csv(e.target.value) } })}
+        />
       </label>
       <label className="block text-xs font-medium text-slate-600">
         Allowed tenants (comma-separated)
-        <input className="input mt-1" value={draft.permissions.allowedTenants.join(', ')}
-               onChange={e => setDraft({ ...draft, permissions: { ...draft.permissions, allowedTenants: csv(e.target.value) } })} />
+        <input
+          className="input mt-1"
+          value={draft.permissions.allowedTenants.join(', ')}
+          onChange={e => setDraft({ ...draft, permissions: { ...draft.permissions, allowedTenants: csv(e.target.value) } })}
+        />
       </label>
       <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
-        <input type="checkbox" checked={draft.permissions.requiresApproval} onChange={e => setDraft({ ...draft, permissions: { ...draft.permissions, requiresApproval: e.target.checked } })} />
+        <input
+          type="checkbox"
+          checked={draft.permissions.requiresApproval}
+          onChange={e => setDraft({ ...draft, permissions: { ...draft.permissions, requiresApproval: e.target.checked } })}
+        />
         Requires approval before each invocation
       </label>
       {writeCount > 0 && !draft.permissions.requiresApproval && (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           <AlertTriangle size={12} className="mr-1 inline" />
-          This Tool Set has {writeCount} write {writeCount === 1 ? 'operation' : 'operations'}. Consider turning on
+          This Tool Set has {writeCount} write {writeCount === 1 ? 'tool' : 'tools'}. Consider turning on
           <strong> Requires approval</strong> before publishing.
         </div>
       )}
@@ -247,28 +420,46 @@ function csv(s: string): string[] {
   return s.split(',').map(x => x.trim()).filter(Boolean);
 }
 
-type PlaygroundMode = 'http' | 'ai';
+// =====================================================================================
+// Tool Playground tab
+// =====================================================================================
 
-function PlaygroundTab({ plugin }: { plugin: PluginDefinition }) {
+type PlaygroundMode = 'http' | 'ai-simulated' | 'ai-real';
+
+/**
+ * Tool Playground: lives at the Tool Set level. Three modes (per the IA spec):
+ *
+ *   1. HTTP            - direct call through Tool Runtime, NO model involved. Mostly
+ *                        used to verify the tool can execute end-to-end.
+ *   2. AI (simulated)  - lightweight tool-selection test that does not consume model
+ *                        budget; useful for sanity-checking tool names + descriptions
+ *                        without involving the real LLM (today defaults to the same
+ *                        backend path; flagged "simulated" so the operator can switch
+ *                        once a simulator is wired in).
+ *   3. AI (real model) - one-shot LLM call against this Tool Set's tools using the
+ *                        model deployment displayed. Validates name + description guide
+ *                        the LLM correctly. The model deployment, mode, selected tool,
+ *                        generated input, and execution result are all visible.
+ */
+function ToolPlaygroundTab({ toolSet }: { toolSet: PluginDefinition }) {
   const [mode, setMode] = useState<PlaygroundMode>('http');
 
   return (
     <div className="space-y-4">
       <ModeSwitch mode={mode} setMode={setMode} />
-      {mode === 'http' ? <HttpPlayground plugin={plugin} /> : <AiPlayground plugin={plugin} />}
+      {mode === 'http' && <HttpPlayground toolSet={toolSet} />}
+      {(mode === 'ai-simulated' || mode === 'ai-real') && (
+        <AiPlayground toolSet={toolSet} simulated={mode === 'ai-simulated'} />
+      )}
     </div>
   );
 }
 
-/**
- * HTTP vs AI playground mode selector. The HTTP path validates the wire shape (path,
- * params, auth); the AI path validates that the LLM can pick the right tool given the
- * configured ToolName + ToolDescription. Both are essential before publishing.
- */
 function ModeSwitch({ mode, setMode }: { mode: PlaygroundMode; setMode: (m: PlaygroundMode) => void }) {
   const modes: Array<{ id: PlaygroundMode; label: string; hint: string; Icon: typeof Play }> = [
-    { id: 'http', label: 'HTTP',  hint: 'Direct HTTP call - tests path, params, auth.',         Icon: Play },
-    { id: 'ai',   label: 'AI',    hint: 'Natural-language - tests tool name + description.',     Icon: Bot  },
+    { id: 'http',         label: 'HTTP',           hint: 'Direct HTTP call - no model involved.',                      Icon: Play },
+    { id: 'ai-simulated', label: 'AI (simulated)', hint: 'Tool-selection sanity check; no model budget consumed.',     Icon: Sparkles },
+    { id: 'ai-real',      label: 'AI (real model)',hint: 'Real LLM call against this Tool Set.',                       Icon: Bot },
   ];
   return (
     <div className="flex flex-wrap items-center gap-4">
@@ -291,25 +482,25 @@ function ModeSwitch({ mode, setMode }: { mode: PlaygroundMode; setMode: (m: Play
   );
 }
 
-function HttpPlayground({ plugin }: { plugin: PluginDefinition }) {
-  const [opId, setOpId] = useState(plugin.endpoints[0]?.operationId ?? '');
+function HttpPlayground({ toolSet }: { toolSet: PluginDefinition }) {
+  const [opId, setOpId] = useState(toolSet.endpoints[0]?.operationId ?? '');
   const [params, setParams] = useState<Record<string, string>>({});
   const [result, setResult] = useState<PlaygroundResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [confirmWrite, setConfirmWrite] = useState(false);
-  const op = plugin.endpoints.find(e => e.operationId === opId);
+  const op = toolSet.endpoints.find(e => e.operationId === opId);
   const write = !!op && isWriteMethod(op.method);
-  // For MVP, write operations only run after the operator ticks the explicit confirm box.
-  // The button stays disabled otherwise so the LLM-side execution flow (which has its own
-  // policy hooks) stays the primary path for mutations.
+  // Write executions require the operator to tick the explicit confirm box first. The
+  // LLM-side execution path (which has its own policy hooks) stays the primary route
+  // for mutations.
   const canRun = !!op && !running && (!write || confirmWrite);
 
   async function run() {
     if (!op) return;
     setRunning(true); setError(null); setResult(null);
     try {
-      const res = await api.runPlayground(plugin.id, { operationId: op.operationId, parameters: params });
+      const res = await api.runPlayground(toolSet.id, { operationId: op.operationId, parameters: params });
       setResult(res);
     } catch (ex) {
       setError((ex as Error).message);
@@ -323,14 +514,17 @@ function HttpPlayground({ plugin }: { plugin: PluginDefinition }) {
       <div className="card p-5">
         <div className="card-header -mx-5 -mt-5 mb-4 px-5">Invoke</div>
         <p className="mb-3 text-xs text-slate-500">
-          Issues the real HTTP request through the Tool Runtime against the imported API's
+          Issues the real HTTP request through the Tool Runtime against the imported source's
           base URL. Use this to verify wire-level shape: path, params, headers, and auth.
+          <strong> No model is involved.</strong>
         </p>
         <label className="block text-xs font-medium text-slate-600">
-          Operation
+          Tool
           <select className="input mt-1" value={opId} onChange={e => { setOpId(e.target.value); setConfirmWrite(false); }}>
-            {plugin.endpoints.map(e => (
-              <option key={e.operationId} value={e.operationId}>{e.method} {e.path}</option>
+            {toolSet.endpoints.map(e => (
+              <option key={e.operationId} value={e.operationId}>
+                {e.toolName} — {e.method} {e.path}
+              </option>
             ))}
           </select>
         </label>
@@ -342,7 +536,7 @@ function HttpPlayground({ plugin }: { plugin: PluginDefinition }) {
             {write && (
               <span className="text-amber-700">
                 <Lock size={12} className="mr-1 inline" />
-                This operation mutates upstream state. Confirm below before running.
+                This tool mutates upstream state. Confirm below before running.
               </span>
             )}
           </div>
@@ -350,7 +544,12 @@ function HttpPlayground({ plugin }: { plugin: PluginDefinition }) {
         {op?.parameters.map(p => (
           <label key={p.name} className="mt-3 block text-xs font-medium text-slate-600">
             {p.name} <span className="text-slate-400">({p.in}, {p.type}{p.required ? ', required' : ''})</span>
-            <input className="input mt-1" value={params[p.name] ?? ''} onChange={e => setParams({ ...params, [p.name]: e.target.value })} placeholder={p.description ?? ''} />
+            <input
+              className="input mt-1"
+              value={params[p.name] ?? ''}
+              onChange={e => setParams({ ...params, [p.name]: e.target.value })}
+              placeholder={p.description ?? ''}
+            />
           </label>
         ))}
         {write && (
@@ -360,7 +559,7 @@ function HttpPlayground({ plugin }: { plugin: PluginDefinition }) {
           </label>
         )}
         <button className="btn mt-4" onClick={run} disabled={!canRun}>
-          <Play size={14} /> {running ? 'Running...' : write ? `Run ${op?.method}` : 'Run'}
+          <Play size={14} /> {running ? 'Running…' : write ? `Run ${op?.method}` : 'Run'}
         </button>
       </div>
       <div className="card p-5">
@@ -368,30 +567,30 @@ function HttpPlayground({ plugin }: { plugin: PluginDefinition }) {
         {error && <p className="text-sm text-rose-600">{error}</p>}
         {result && <ResponseViewer result={result} />}
         {!error && !result && (
-          <p className="text-sm text-slate-500">Pick an operation, fill in parameters, and click <strong>Run</strong>.</p>
+          <p className="text-sm text-slate-500">Pick a tool, fill in parameters, and click <strong>Run</strong>.</p>
         )}
       </div>
     </div>
   );
 }
 
-/**
- * AI playground: type a natural-language prompt, the AgentRuntime spins up a one-shot LLM
- * agent with this plugin's tools, and we render the LLM reply alongside every tool call
- * (name, arguments, result, duration). The plugin does NOT need to be published.
- */
-function AiPlayground({ plugin }: { plugin: PluginDefinition }) {
-  const [message, setMessage] = useState(suggestedPrompt(plugin));
+function AiPlayground({ toolSet, simulated }: { toolSet: PluginDefinition; simulated: boolean }) {
+  const [message, setMessage] = useState(suggestedPrompt(toolSet));
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<AiPlaygroundResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Until the backend has a true tool-selection simulator the simulated mode shares
+  // the same /ai-playground endpoint; we surface the mode + the deployment name in the
+  // header so the operator knows which budget they are spending.
+  const modeLabel = simulated ? 'simulated' : 'real model';
+  const modelDeployment = '(agent runtime default)';
 
   async function run() {
     const m = message.trim();
     if (!m) return;
     setRunning(true); setError(null); setResult(null);
     try {
-      const res = await api.runAiPlayground(plugin.id, { message: m });
+      const res = await api.runAiPlayground(toolSet.id, { message: m });
       setResult(res);
     } catch (ex) {
       setError((ex as Error).message);
@@ -401,58 +600,76 @@ function AiPlayground({ plugin }: { plugin: PluginDefinition }) {
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      <div className="card p-5">
-        <div className="card-header -mx-5 -mt-5 mb-4 px-5">Ask the LLM</div>
-        <label className="block text-xs font-medium text-slate-600">
-          Prompt
-          <textarea
-            className="input mt-1 resize-y"
-            rows={4}
-            value={message}
-            onChange={e => setMessage(e.target.value)}
-            placeholder="e.g. give me last 14 days open rate"
-            disabled={running}
-          />
-        </label>
-        <p className="mt-2 text-xs text-slate-500">
-          The LLM sees only this Tool Set's tools. The Tool Set does <strong>not</strong> need to be published.
-          Each tool is described to the LLM with the <strong>Tool name</strong> and <strong>Tool description</strong> you configured on the Operations tab.
+    <div className="space-y-4">
+      <div className="rounded-md border border-brand-100 bg-brand-50/50 px-4 py-3 text-xs text-brand-900">
+        <div className="flex flex-wrap items-center gap-3">
+          <span><strong>Mode:</strong> {modeLabel}</span>
+          <span><strong>Model deployment:</strong> <span className="font-mono">{modelDeployment}</span></span>
+          <span><strong>Tool Set:</strong> <span className="font-mono">{toolSet.displayName}</span></span>
+        </div>
+        <p className="mt-1 text-[11px] text-brand-800/80">
+          The LLM sees only this Tool Set's tools, with the configured tool name and description as
+          the selection hint. We display every tool the model picked, the arguments it generated,
+          and the execution result.
         </p>
-        <button className="btn mt-4" onClick={run} disabled={running || !message.trim()}>
-          <Bot size={14} /> {running ? 'Asking the LLM...' : 'Run'}
-        </button>
       </div>
-
-      <div className="card p-5">
-        <div className="card-header -mx-5 -mt-5 mb-4 px-5">Result</div>
-        {error && <p className="text-sm text-rose-600 whitespace-pre-wrap">{error}</p>}
-        {result?.error && <p className="rounded-md bg-rose-50 p-3 text-sm text-rose-700">{result.error}</p>}
-        {result && !result.error && (
-          <>
-            <div className="text-xs text-slate-500">Total {result.durationMs} ms · {result.toolCalls.length} tool call{result.toolCalls.length === 1 ? '' : 's'}</div>
-            {result.reply && (
-              <div className="mt-3 whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm leading-relaxed text-slate-800">
-                {result.reply}
-              </div>
-            )}
-            {result.toolCalls.length === 0 && (
-              <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-                <strong>The LLM did not call any tool.</strong> This usually means the tool description is too vague, doesn't mention the kinds of questions it answers, or names a domain the LLM didn't infer from the prompt. Try editing the Tool description on the Operations tab.
-              </p>
-            )}
-            <div className="mt-3 space-y-2">
-              {result.toolCalls.map((tc, idx) => (
-                <ToolCallCard key={idx} call={tc} />
-              ))}
-            </div>
-          </>
-        )}
-        {!result && !error && (
-          <p className="text-sm text-slate-500">
-            Type a question on the left and click <strong>Run</strong>. The LLM will decide whether to use one of this plugin's tools and we'll show you everything that happened.
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="card p-5">
+          <div className="card-header -mx-5 -mt-5 mb-4 px-5">Ask the LLM</div>
+          <label className="block text-xs font-medium text-slate-600">
+            Prompt
+            <textarea
+              className="input mt-1 resize-y"
+              rows={4}
+              value={message}
+              onChange={e => setMessage(e.target.value)}
+              placeholder="e.g. give me last 14 days open rate"
+              disabled={running}
+            />
+          </label>
+          <p className="mt-2 text-xs text-slate-500">
+            The Tool Set does <strong>not</strong> need to be published to test it here.
           </p>
-        )}
+          <button className="btn mt-4" onClick={run} disabled={running || !message.trim()}>
+            <Bot size={14} /> {running ? 'Asking the LLM…' : 'Run'}
+          </button>
+        </div>
+
+        <div className="card p-5">
+          <div className="card-header -mx-5 -mt-5 mb-4 px-5">Result</div>
+          {error && <p className="text-sm text-rose-600 whitespace-pre-wrap">{error}</p>}
+          {result?.error && <p className="rounded-md bg-rose-50 p-3 text-sm text-rose-700">{result.error}</p>}
+          {result && !result.error && (
+            <>
+              <div className="text-xs text-slate-500">
+                Total {result.durationMs} ms · {result.toolCalls.length} tool call{result.toolCalls.length === 1 ? '' : 's'}
+              </div>
+              {result.reply && (
+                <div className="mt-3 whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm leading-relaxed text-slate-800">
+                  {result.reply}
+                </div>
+              )}
+              {result.toolCalls.length === 0 && (
+                <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                  <strong>The LLM did not call any tool.</strong> This usually means the tool description is too
+                  vague, doesn't mention the kinds of questions it answers, or names a domain the LLM didn't infer
+                  from the prompt. Try editing the Tool description on the Tools tab.
+                </p>
+              )}
+              <div className="mt-3 space-y-2">
+                {result.toolCalls.map((tc, idx) => (
+                  <ToolCallCard key={idx} call={tc} />
+                ))}
+              </div>
+            </>
+          )}
+          {!result && !error && (
+            <p className="text-sm text-slate-500">
+              Type a question on the left and click <strong>Run</strong>. The LLM decides whether to use one of this
+              Tool Set's tools and we'll show you everything that happened.
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -467,7 +684,15 @@ function ToolCallCard({ call }: { call: AiPlaygroundToolCall }) {
         <span className="inline-flex items-center gap-1 font-mono font-medium text-slate-800">
           <Wrench size={12} /> {call.toolName}
         </span>
-        <span className={`pill ${call.statusCode >= 200 && call.statusCode < 300 ? 'bg-emerald-100 text-emerald-800' : call.statusCode === 0 ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'}`}>
+        <span
+          className={`pill ${
+            call.statusCode >= 200 && call.statusCode < 300
+              ? 'bg-emerald-100 text-emerald-800'
+              : call.statusCode === 0
+              ? 'bg-rose-100 text-rose-800'
+              : 'bg-amber-100 text-amber-800'
+          }`}
+        >
           {call.statusCode === 0 ? 'error' : call.statusCode}
         </span>
         <span className="text-slate-500">{call.durationMs} ms</span>
@@ -475,7 +700,9 @@ function ToolCallCard({ call }: { call: AiPlaygroundToolCall }) {
       <div className="mt-2 grid gap-2 md:grid-cols-2">
         <div>
           <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Arguments</div>
-          <pre className="mt-1 max-h-40 overflow-auto rounded border border-slate-200 bg-slate-50 p-2 text-[11px] whitespace-pre-wrap break-all">{argsJson}</pre>
+          <pre className="mt-1 max-h-40 overflow-auto rounded border border-slate-200 bg-slate-50 p-2 text-[11px] whitespace-pre-wrap break-all">
+            {argsJson}
+          </pre>
         </div>
         <div>
           <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Result</div>
@@ -495,30 +722,16 @@ function safeStringify(value: unknown): string {
   catch { return String(value); }
 }
 
-/**
- * Tries to suggest a sensible default prompt based on the plugin's first tool description.
- * Keeps the operator from staring at a blank textarea on first visit.
- */
-function suggestedPrompt(plugin: PluginDefinition): string {
-  const first = plugin.endpoints[0];
+function suggestedPrompt(toolSet: PluginDefinition): string {
+  const first = toolSet.endpoints[0];
   if (!first) return '';
-  // Strip "Get " / "List " etc. so the prompt feels like a human question, not a tool name.
-  const verb = first.toolDescription?.toLowerCase().includes('open rate') ? 'Give me last 14 days open rate'
-    : first.toolDescription?.toLowerCase().includes('delivery') ? 'What was the email delivery rate over the last 14 days?'
-    : first.toolDescription?.toLowerCase().includes('campaign') ? 'List the most recent campaigns'
-    : `Use ${first.toolName} to answer a typical question an operator would ask.`;
-  return verb;
+  const desc = first.toolDescription?.toLowerCase() ?? '';
+  if (desc.includes('open rate')) return 'Give me last 14 days open rate';
+  if (desc.includes('delivery')) return 'What was the email delivery rate over the last 14 days?';
+  if (desc.includes('campaign')) return 'List the most recent campaigns';
+  return `Use ${first.toolName} to answer a typical question an operator would ask.`;
 }
 
-/**
- * Renders a Playground response with a Pretty/Raw toggle and a Copy button.
- *
- * Pretty mode parses the body as JSON (whether the API returned `application/json` or a
- * JSON-shaped `text/plain`) and re-serialises with 2-space indentation. We fall back to
- * the raw body silently on parse failure so the toggle never produces an empty pane.
- * Pretty is the default because every API in this platform returns JSON and a flat blob
- * is unreadable past ~200 chars.
- */
 function ResponseViewer({ result }: { result: PlaygroundResponse }) {
   const [pretty, setPretty] = useState(true);
   const [copied, setCopied] = useState(false);
@@ -541,7 +754,7 @@ function ResponseViewer({ result }: { result: PlaygroundResponse }) {
       setTimeout(() => setCopied(false), 1500);
     } catch {
       // Clipboard write can fail in non-secure contexts; fail silently rather than
-      // surfacing a stack to the operator - they can still select-and-copy manually.
+      // surfacing a stack to the operator — they can still select-and-copy manually.
     }
   }
 
@@ -580,5 +793,93 @@ function ResponseViewer({ result }: { result: PlaygroundResponse }) {
         {formatted}
       </pre>
     </>
+  );
+}
+
+// =====================================================================================
+// Publish tab
+// =====================================================================================
+
+function PublishTab({
+  toolSet,
+  usingAgents,
+  onPublish,
+  onUnpublish,
+  publishing,
+  unpublishing,
+}: {
+  toolSet: PluginDefinition;
+  usingAgents: AgentDefinition[];
+  onPublish: () => void;
+  onUnpublish: () => void;
+  publishing: boolean;
+  unpublishing: boolean;
+}) {
+  const writeCount = toolSet.endpoints.filter(e => isWriteMethod(e.method)).length;
+  return (
+    <div className="grid gap-5 lg:grid-cols-2">
+      <div className="card p-5">
+        <div className="card-header -mx-5 -mt-5 mb-4 px-5">Lifecycle</div>
+        <div className="space-y-3 text-sm text-slate-700">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">Status</span>
+            <StatusPill status={toolSet.status} />
+            <span className="text-xs text-slate-500">
+              · last updated {new Date(toolSet.updatedAt).toLocaleString()}
+            </span>
+          </div>
+          <p className="text-xs text-slate-500">
+            Publishing happens at the Tool Set level so every tool inside ships and rolls back together.
+            Once published, the McpServer hot-loads the tools and agents that attach this Tool Set can
+            start calling them within seconds.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            {toolSet.status === 'Published' ? (
+              <button className="btn-ghost" onClick={onUnpublish} disabled={unpublishing}>
+                <X size={14} /> Unpublish
+              </button>
+            ) : (
+              <button className="btn" onClick={onPublish} disabled={publishing}>
+                <Send size={14} /> Publish
+              </button>
+            )}
+            {usingAgents.length > 0 && (
+              <span className="text-xs text-amber-700">
+                <AlertTriangle size={12} className="mr-1 inline" />
+                {usingAgents.length} {usingAgents.length === 1 ? 'agent uses' : 'agents use'} this Tool Set
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="card p-5 text-sm text-slate-600">
+        <div className="card-header -mx-5 -mt-5 mb-4 px-5">Publish checklist</div>
+        <ul className="space-y-2 text-xs">
+          <CheckItem label="Every tool has a concrete name and outcome-oriented description" />
+          <CheckItem label="Tool descriptions mention the kinds of questions they answer" />
+          <CheckItem label="Allowed agents listed under Permissions" />
+          <CheckItem label="Approval policy reviewed" warn={writeCount > 0} />
+          <CheckItem label="HTTP playground returned 200 for read-only tools" />
+          <CheckItem label="AI playground picks the right tool from a realistic prompt" />
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function CheckItem({ label, warn }: { label: string; warn?: boolean }) {
+  return (
+    <li className="flex items-start gap-2">
+      <span
+        className={`mt-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border ${
+          warn ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-slate-300 bg-white text-slate-400'
+        }`}
+        aria-hidden
+      >
+        {warn ? <AlertTriangle size={10} /> : <Wrench size={10} />}
+      </span>
+      <span className="text-slate-700">{label}</span>
+    </li>
   );
 }

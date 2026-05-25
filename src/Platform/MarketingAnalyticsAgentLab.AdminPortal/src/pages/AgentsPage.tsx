@@ -73,7 +73,7 @@ export default function AgentsPage() {
           <p className="font-medium">Admin Portal manages metadata - DevUI runs the agents.</p>
           <p className="mt-1 text-brand-800/80">
             Use this page to configure name, instructions, model, attached <strong>Tool Sets</strong>, and routing hints.
-            Agents only <em>use</em> published Tool Sets / tools - to create new tools go to <strong>APIs</strong> and then <strong>Tools</strong>.
+            Agents only <em>use</em> published Tool Sets / tools — to create new tools go to <strong>Tools</strong>.
             For interactive testing, trace inspection, and workflow visualization,
             <a href={devUiUrl} target="_blank" rel="noreferrer" className="ml-1 underline">open the DevUI dashboard</a>
             served in-process by the AgentRuntime.
@@ -197,7 +197,9 @@ export default function AgentsPage() {
                     );
                   })}
                   {plugins.data?.length === 0 && (
-                    <p className="text-xs text-slate-500">No Tool Sets exist yet. Create one from <strong>APIs</strong> first.</p>
+                    <p className="text-xs text-slate-500">
+                      No Tool Sets exist yet. Open <strong>Tools</strong> and create one from selected endpoints first.
+                    </p>
                   )}
                 </div>
               </div>

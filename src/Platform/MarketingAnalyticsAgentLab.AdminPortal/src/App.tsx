@@ -1,8 +1,8 @@
-import { NavLink, Route, Routes } from 'react-router-dom';
-import { Activity, Bot, Cog, ExternalLink, FlaskConical, Gauge, Sparkles, UploadCloud, Users, Wrench } from 'lucide-react';
-import ApisPage from './pages/ApisPage';
+import { NavLink, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { Activity, Bot, Cog, ExternalLink, FlaskConical, Gauge, Sparkles, Users, Wrench } from 'lucide-react';
+import ToolsPage from './pages/ToolsPage';
 import ApiDetailPage from './pages/ApiDetailPage';
-import PluginsPage from './pages/PluginsPage';
+import EndpointDetailPage from './pages/EndpointDetailPage';
 import PluginDetailPage from './pages/PluginDetailPage';
 import AgentsPage from './pages/AgentsPage';
 import AssistantsPage from './pages/AssistantsPage';
@@ -11,15 +11,12 @@ import DashboardPage from './pages/DashboardPage';
 import SettingsPage from './pages/SettingsPage';
 import { platformUrls } from './lib/platform';
 
-// Nav uses the new terminology: "Tools" in the sidebar points at the Tool Sets list
-// (one Tool Set = an OpenAPI-derived group of callable AI tools). The legacy /plugins
-// routes are kept so existing bookmarks and persisted links keep working.
-//
-// "Dashboard" is the AI Runtime Dashboard: usage / cost / reliability / governance
-// rolled up from execution events. It's the new default landing route.
+// New IA: "Tools" merges the old "API Catalog" + "Tools" sections into one workspace
+// that owns the full lifecycle from OpenAPI source → endpoints → Tool Sets. The
+// previous "API Catalog" top-level entry is gone. Agents only attach published Tool
+// Sets; Assistants front Atlas; Activity shows runtime events.
 const nav = [
   { to: '/dashboard',  label: 'Dashboard',  icon: Gauge },
-  { to: '/apis',       label: 'APIs',       icon: UploadCloud },
   { to: '/tools',      label: 'Tools',      icon: Wrench },
   { to: '/agents',     label: 'Agents',     icon: Bot },
   { to: '/assistants', label: 'Assistants', icon: Users },
@@ -74,20 +71,53 @@ export default function App() {
 
       <main className="flex-1 overflow-auto">
         <Routes>
-          <Route path="/"             element={<DashboardPage />} />
-          <Route path="/dashboard"    element={<DashboardPage />} />
-          <Route path="/apis"         element={<ApisPage />} />
-          <Route path="/apis/:id"     element={<ApiDetailPage />} />
-          <Route path="/tools"        element={<PluginsPage />} />
-          <Route path="/tools/:id"    element={<PluginDetailPage />} />
-          <Route path="/plugins"      element={<PluginsPage />} />
-          <Route path="/plugins/:id"  element={<PluginDetailPage />} />
-          <Route path="/agents"       element={<AgentsPage />} />
-          <Route path="/assistants"   element={<AssistantsPage />} />
-          <Route path="/activity"     element={<ActivityPage />} />
-          <Route path="/settings"     element={<SettingsPage />} />
+          <Route path="/"          element={<DashboardPage />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
+
+          {/* Unified Tools workspace */}
+          <Route path="/tools" element={<ToolsPage />} />
+          <Route path="/tools/tool-sets/:id" element={<PluginDetailPage />} />
+          <Route path="/tools/sources/:id" element={<ApiDetailPage />} />
+          <Route path="/tools/sources/:id/endpoints/:operationId" element={<EndpointDetailPage />} />
+
+          {/* Legacy redirects so persisted bookmarks and copy/pasted links keep working
+              after the IA refactor that retired "API Catalog" as a top-level section. */}
+          <Route path="/apis" element={<Navigate to="/tools?tab=sources" replace />} />
+          <Route path="/apis/:id" element={<LegacyApiRedirect />} />
+          <Route path="/apis/:id/endpoints/:operationId" element={<LegacyEndpointRedirect />} />
+          <Route path="/plugins" element={<Navigate to="/tools" replace />} />
+          <Route path="/plugins/:id" element={<LegacyPluginRedirect />} />
+
+          {/* Same old Tool Set detail at /tools/:id for the briefest period before
+              users learn the new nested URL — accepted because the new IA spec wants
+              everything under /tools/tool-sets/<id>. */}
+
+          <Route path="/agents"     element={<AgentsPage />} />
+          <Route path="/assistants" element={<AssistantsPage />} />
+          <Route path="/activity"   element={<ActivityPage />} />
+          <Route path="/settings"   element={<SettingsPage />} />
         </Routes>
       </main>
     </div>
   );
+}
+
+// Tiny legacy redirect helpers. Kept inline because they exist only to keep old
+// bookmarks alive — they should disappear once the next major release decides the
+// legacy URL grace period is over.
+
+function LegacyApiRedirect() {
+  const { id = '' } = useParams();
+  return <Navigate to={`/tools/sources/${id}`} replace />;
+}
+
+function LegacyEndpointRedirect() {
+  const { id = '', operationId = '' } = useParams();
+  return <Navigate to={`/tools/sources/${id}/endpoints/${operationId}`} replace />;
+}
+
+function LegacyPluginRedirect() {
+  const { id = '' } = useParams();
+  const { search } = useLocation();
+  return <Navigate to={`/tools/tool-sets/${id}${search}`} replace />;
 }
