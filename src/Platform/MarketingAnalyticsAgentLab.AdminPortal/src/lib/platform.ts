@@ -127,6 +127,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  /**
+   * Update display name, description, and routing hints on an existing composite
+   * agent. The activities (the workflow's actual logic) are edited in Elsa Studio's
+   * designer — this endpoint is metadata-only.
+   */
+  updateWorkflowAgent: (name: string, body: UpdateCompositeAgentMetadataRequest) =>
+    fetchJson<CreateCompositeAgentResponse>(`${platformUrls.agentRuntime()}/agents/composite/${encodeURIComponent(name)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
   listLiveTools: () => fetchJson<LiveTool[]>(`${platformUrls.mcpServer()}/tools`),
   /**
    * Recent tool executions captured by the McpServer's in-memory ExecutionLog. Used by the
@@ -312,6 +322,13 @@ export interface LiveAgent {
   plugins: string[];
   tools: string[];
   kind?: 'Simple' | 'Composite';
+  /**
+   * Keywords / patterns the AI Gateway's router uses to pick this agent from an
+   * assistant's pool. Empty array (the default) means the agent is only chosen when
+   * it's the only candidate. Workflow agents author this via the Edit metadata modal;
+   * standard agents inherit it from their YAML AgentDefinition.
+   */
+  routingHints?: string[];
 }
 
 /**
@@ -352,6 +369,7 @@ export interface CreateCompositeAgentRequest {
   name: string;
   displayName?: string | null;
   description?: string | null;
+  routingHints?: string[] | null;
 }
 export interface CreateCompositeAgentResponse {
   definitionId: string;
@@ -359,6 +377,13 @@ export interface CreateCompositeAgentResponse {
   name: string;
   displayName: string;
   published: boolean;
+}
+
+/** Editable metadata on an existing composite agent — PATCH /agents/composite/{name}. */
+export interface UpdateCompositeAgentMetadataRequest {
+  displayName?: string | null;
+  description?: string | null;
+  routingHints?: string[] | null;
 }
 export interface LiveTool {
   name: string;

@@ -150,7 +150,11 @@ public static class AssistantInteractionEndpoints
                     Instructions: string.Empty,
                     ModelDeployment: string.Empty,
                     PluginIds: Array.Empty<Guid>(),
-                    RoutingHints: null));
+                    // Forward routing hints from the live AgentDescriptor — populated by
+                    // WorkflowAgentBridge from the workflow's CustomProperties. Without
+                    // these, the router has no signal and workflow agents only win when
+                    // they're the sole candidate in the assistant's pool.
+                    RoutingHints: a.RoutingHints.Count == 0 ? null : a.RoutingHints.ToArray()));
             var allAgents = simpleAgents.Concat(compositeAsDefs).ToArray();
             var candidateNames = new HashSet<string>(assistant.AgentNames, StringComparer.OrdinalIgnoreCase);
             var candidates = allAgents.Where(a => candidateNames.Contains(a.Name)).ToArray();

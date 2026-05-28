@@ -40,6 +40,16 @@ public sealed record AgentDescriptor(
     /// <see cref="AgentKind.Composite"/> via <c>with</c> when wrapping a published workflow.
     /// </summary>
     public AgentKind Kind { get; init; } = AgentKind.Simple;
+
+    /// <summary>
+    /// Keywords / patterns the AI Gateway's router uses to pick this agent from an
+    /// assistant's allowed pool when a question matches. Same semantic as
+    /// <c>AgentDefinition.RoutingHints</c> in the PluginRegistry — exposed on the live
+    /// descriptor so workflow agents (which have no YAML AgentDefinition) can still
+    /// declare routing hints via their workflow's CustomProperties. Default: empty,
+    /// meaning the agent only wins when it's the only candidate.
+    /// </summary>
+    public IReadOnlyList<string> RoutingHints { get; init; } = Array.Empty<string>();
 }
 
 public interface IAgentRegistry

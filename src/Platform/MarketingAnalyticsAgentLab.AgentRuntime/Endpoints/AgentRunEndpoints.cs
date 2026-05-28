@@ -88,6 +88,41 @@ public static class AgentRunEndpoints
             .WithName("CreateCompositeAgent")
             .WithSummary("Create + publish a composite agent (wraps an Elsa workflow with the prompt/response shape the bridge expects).");
 
+        // Update the operator-editable metadata of an existing composite agent —
+        // display name, description, routing hints. Activities and bindings stay
+        // intact (those are edited via Elsa Studio's designer). The agent name (URL
+        // identifier) is also intentionally NOT editable here: it'd break any client
+        // (Atlas, Gateway) that captured the URL.
+        agents.MapPatch("/composite/{name}", async (
+            string name,
+            CompositeAgentScaffoldService.UpdateCompositeAgentMetadataRequest request,
+            WorkflowAgentRegistry workflowRegistry,
+            CompositeAgentScaffoldService service,
+            WorkflowAgentBridge bridge,
+            CancellationToken ct) =>
+        {
+            if (!workflowRegistry.TryGetWorkflowDefinitionId(name, out var workflowDefinitionId) || workflowDefinitionId is null)
+            {
+                return Results.NotFound(new { error = $"Composite agent '{name}' is not registered. The bridge may not have promoted it yet — retry after a few seconds, or re-publish the workflow in Studio." });
+            }
+
+            try
+            {
+                var result = await service.UpdateMetadataAsync(workflowDefinitionId, request, ct);
+                // Refresh the bridge synchronously so the updated metadata is visible on
+                // the very next /agents call from the AdminPortal — without this the
+                // operator would see stale display name for up to 10 seconds.
+                _ = bridge.DiagnoseAsync(ct);
+                return Results.Ok(result);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        })
+            .WithName("UpdateCompositeAgentMetadata")
+            .WithSummary("Update display name, description, and routing hints of an existing composite agent. Activities are edited in Elsa Studio.");
+
         // Diagnostic-only: connects to MCP and reports exactly what it sees. Surfaces silent
         // failures that the existing TryCreateMcpClient swallows into a LogWarning. Hit this
         // when agent-runtime appears to have empty tool sets despite MCP showing tools live

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bot, ExternalLink, FlaskConical, Loader2, Play, Plus, RefreshCcw, Save, Send, Workflow, Wrench } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import PageHeader from '../components/PageHeader';
-import { api, platformUrls, type AgentDefinition, type AgentPlaygroundResponse, type LiveAgent } from '../lib/platform';
+import { api, platformUrls, type AgentDefinition, type AgentPlaygroundResponse, type LiveAgent, type UpdateCompositeAgentMetadataRequest } from '../lib/platform';
 
 const blank: AgentDefinition = {
   id: '',
@@ -31,6 +31,9 @@ export default function AgentsPage() {
   // (existing AgentDefinition form) or "workflow" (scaffold-creation form). Wrapped
   // in one state value so the modal mounts/unmounts cleanly.
   const [creating, setCreating] = useState<'picker' | 'workflow' | null>(null);
+  // Workflow agents have a separate edit modal (metadata-only — activities are
+  // edited in Studio). Holds the LiveAgent whose metadata the operator is editing.
+  const [editingWorkflow, setEditingWorkflow] = useState<LiveAgent | null>(null);
 
   const save = useMutation({
     mutationFn: () => {
@@ -127,9 +130,17 @@ export default function AgentsPage() {
                 <div className="flex-1 space-y-2 px-5 py-3 text-xs text-slate-600">
                   <div>{l.description || <span className="text-slate-400">(no description)</span>}</div>
                   {isComposite ? (
-                    <div className="text-slate-500">
-                      Authored as an Elsa workflow. Same <code className="font-mono text-[11px]">/agents/{`<name>`}/run</code> contract as standard agents — Atlas, Gateway, and the Playground call it identically.
-                    </div>
+                    <>
+                      <div className="text-slate-500">
+                        Authored as an Elsa workflow. Same <code className="font-mono text-[11px]">/agents/{`<name>`}/run</code> contract as standard agents — Atlas, Gateway, and the Playground call it identically.
+                      </div>
+                      <div>
+                        <span className="font-semibold text-slate-700">Routing hints:</span>{' '}
+                        {l.routingHints && l.routingHints.length > 0
+                          ? l.routingHints.map(h => <span key={h} className="mr-1 inline-block rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-600">{h}</span>)
+                          : <span className="text-slate-400">none</span>}
+                      </div>
+                    </>
                   ) : (
                     <>
                       {definition && (
@@ -161,9 +172,14 @@ export default function AgentsPage() {
                 </div>
                 <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-2">
                   {isComposite ? (
-                    <Link to="/automations?tab=designer" className="btn-ghost">
-                      Open in Designer
-                    </Link>
+                    <>
+                      <Link to="/automations?tab=designer" className="btn-ghost">
+                        Open in Designer
+                      </Link>
+                      <button className="btn-ghost" onClick={() => setEditingWorkflow(l)}>
+                        Edit metadata
+                      </button>
+                    </>
                   ) : definition ? (
                     <button className="btn-ghost" onClick={() => setEditing(definition)}>
                       Edit metadata
@@ -334,6 +350,17 @@ export default function AgentsPage() {
         />
       )}
 
+      {editingWorkflow && (
+        <EditWorkflowAgentModal
+          agent={editingWorkflow}
+          onClose={() => setEditingWorkflow(null)}
+          onSaved={() => {
+            setEditingWorkflow(null);
+            qc.invalidateQueries({ queryKey: ['live-agents'] });
+          }}
+        />
+      )}
+
       {playingWith && (
         <AgentPlaygroundModal agent={playingWith} onClose={() => setPlayingWith(null)} />
       )}
@@ -416,12 +443,14 @@ function CreateWorkflowAgentModal({ onClose, onCreated }: {
   const [name, setName] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [description, setDescription] = useState('');
+  const [routingHintsText, setRoutingHintsText] = useState('');
   const create = useMutation({
     mutationFn: () =>
       api.createWorkflowAgent({
         name: name.trim(),
         displayName: displayName.trim() || null,
         description: description.trim() || null,
+        routingHints: parseRoutingHints(routingHintsText),
       }),
     onSuccess: result => onCreated({ definitionId: result.definitionId, name: result.name, displayName: result.displayName }),
   });
@@ -482,6 +511,20 @@ function CreateWorkflowAgentModal({ onClose, onCreated }: {
             />
           </label>
 
+          <label className="block text-xs font-medium text-slate-600">
+            Routing hints (optional, comma-separated)
+            <input
+              className="input mt-1"
+              value={routingHintsText}
+              onChange={e => setRoutingHintsText(e.target.value)}
+              placeholder="triage, at-risk, campaign health, optimize"
+            />
+            <span className="mt-1 block text-[10px] text-slate-400">
+              Keywords the AI Gateway's router uses to pick this agent when a question matches.
+              Leave blank if this agent is the only one in its assistant's pool.
+            </span>
+          </label>
+
           {error && (
             <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
               {error}
@@ -502,6 +545,136 @@ function CreateWorkflowAgentModal({ onClose, onCreated }: {
       </div>
     </div>
   );
+}
+
+/**
+ * Metadata-only edit modal for an existing workflow (composite) agent. Activities
+ * stay where they belong — in Elsa Studio's designer. This modal owns the labelling
+ * (display name, description) and the routing-hint signal the AI Gateway uses to
+ * decide which agent in an assistant's pool to invoke. The agent name (URL identifier)
+ * is intentionally read-only — changing it would break any client (Atlas, Gateway,
+ * cURL) that captured the URL.
+ */
+function EditWorkflowAgentModal({ agent, onClose, onSaved }: {
+  agent: LiveAgent;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [displayName, setDisplayName] = useState(agent.displayName);
+  const [description, setDescription] = useState(agent.description ?? '');
+  const [routingHintsText, setRoutingHintsText] = useState((agent.routingHints ?? []).join(', '));
+
+  const save = useMutation({
+    mutationFn: (): Promise<unknown> => {
+      const body: UpdateCompositeAgentMetadataRequest = {
+        displayName: displayName.trim() || null,
+        description: description.trim() || null,
+        routingHints: parseRoutingHints(routingHintsText),
+      };
+      return api.updateWorkflowAgent(agent.name, body);
+    },
+    onSuccess: () => onSaved(),
+  });
+
+  const error = save.error ? (save.error as Error).message : null;
+
+  return (
+    <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-900/40 p-6">
+      <div className="card w-full max-w-xl">
+        <div className="card-header flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Workflow size={16} className="text-indigo-600" />
+            <span>Edit workflow agent</span>
+            <span className="font-mono text-xs text-slate-500">{agent.name}</span>
+          </div>
+          <button className="text-slate-400 hover:text-slate-700" onClick={onClose}>✕</button>
+        </div>
+        <div className="space-y-3 p-5">
+          <div className="rounded-lg border border-indigo-100 bg-indigo-50/40 px-3 py-2 text-xs text-indigo-900">
+            Metadata only. To change the workflow's activities or wiring, click
+            <strong> Open in Designer</strong> on the card.
+          </div>
+
+          <label className="block text-xs font-medium text-slate-600">
+            Name (read-only — changing it would break callers like Atlas)
+            <input className="input mt-1 font-mono text-slate-500" value={agent.name} disabled readOnly />
+          </label>
+
+          <label className="block text-xs font-medium text-slate-600">
+            Display name
+            <input
+              className="input mt-1"
+              value={displayName}
+              onChange={e => setDisplayName(e.target.value)}
+              placeholder="Hello Agent"
+            />
+          </label>
+
+          <label className="block text-xs font-medium text-slate-600">
+            Description
+            <textarea
+              className="input mt-1"
+              rows={2}
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="What this agent does, who should use it..."
+            />
+          </label>
+
+          <label className="block text-xs font-medium text-slate-600">
+            Routing hints (comma-separated)
+            <input
+              className="input mt-1"
+              value={routingHintsText}
+              onChange={e => setRoutingHintsText(e.target.value)}
+              placeholder="triage, at-risk, campaign health, optimize"
+            />
+            <span className="mt-1 block text-[10px] text-slate-400">
+              Keywords the AI Gateway's router uses to pick this agent when a question matches.
+            </span>
+          </label>
+
+          {error && (
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+              {error}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3">
+          <button className="btn-ghost" onClick={onClose} disabled={save.isPending}>Cancel</button>
+          <button
+            className="btn"
+            onClick={() => save.mutate()}
+            disabled={save.isPending}
+          >
+            {save.isPending ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            Save metadata
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Parse a free-form comma-separated hints input into a clean string[]. Whitespace
+ * is trimmed, empty entries dropped, and duplicates removed (case-insensitive) so
+ * the operator can paste sloppy input ("triage, , Triage,  at-risk") and get a
+ * canonical [triage, at-risk] back.
+ */
+function parseRoutingHints(text: string): string[] {
+  if (!text?.trim()) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of text.split(',')) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
 }
 
 /**

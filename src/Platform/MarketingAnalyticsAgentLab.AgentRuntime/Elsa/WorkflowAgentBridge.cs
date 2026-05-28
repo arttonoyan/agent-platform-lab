@@ -119,13 +119,22 @@ public sealed class WorkflowAgentBridge(
 
             var workflow = graph.Workflow;
             var workflowName = workflow.WorkflowMetadata.Name;
-            var displayName = workflow.WorkflowMetadata.Name;
             var description = workflow.WorkflowMetadata.Description ?? string.Empty;
 
             // The agent name has to be a stable URL-safe identifier — workflow Name is
             // free-form so we sanitize the way AgentActivityProvider does. The browser
             // displays DisplayName, not Name, so prettiness isn't lost.
             var agentName = SanitizeName(workflowName ?? graph.Workflow.Identity.DefinitionId);
+
+            // DisplayName + RoutingHints live in CustomProperties — see
+            // CompositeAgentScaffoldService for the keys. Falling back to the workflow's
+            // own Name covers older composites authored before this storage convention
+            // existed, plus workflows users hand-craft in Studio without going through
+            // the scaffold service.
+            var displayName = ReadCustomProperty<string>(workflow.CustomProperties, CompositeAgentScaffoldService.DisplayNamePropertyKey)
+                ?? workflowName
+                ?? agentName;
+            var routingHints = ReadRoutingHints(workflow.CustomProperties);
 
             var descriptor = new AgentDescriptor(
                 Name: agentName,
@@ -135,6 +144,7 @@ public sealed class WorkflowAgentBridge(
                 Tools: Array.Empty<string>())
             {
                 Kind = AgentKind.Composite,
+                RoutingHints = routingHints,
             };
 
             composites.Add((descriptor, graph.Workflow.Identity.DefinitionId));
@@ -210,5 +220,50 @@ public sealed class WorkflowAgentBridge(
             buffer[i] = char.IsLetterOrDigit(c) ? c : '_';
         }
         return new string(buffer);
+    }
+
+    /// <summary>
+    /// CustomProperties survives a JSON round-trip through Elsa's serializer, so values
+    /// originally written as <c>string</c> can come back as <c>JsonElement</c>. Coerce
+    /// based on the expected output type so callers don't have to handle both forms.
+    /// </summary>
+    private static T? ReadCustomProperty<T>(IDictionary<string, object> properties, string key) where T : class
+    {
+        if (!properties.TryGetValue(key, out var raw) || raw is null) return null;
+        if (raw is T direct) return direct;
+        if (raw is System.Text.Json.JsonElement element)
+        {
+            if (typeof(T) == typeof(string) && element.ValueKind == System.Text.Json.JsonValueKind.String)
+                return (T)(object)element.GetString()!;
+        }
+        return raw.ToString() as T;
+    }
+
+    /// <summary>
+    /// Routing hints round-trip as a JSON array; depending on which serializer path the
+    /// value took, it may come back as <c>string[]</c>, <c>List&lt;object&gt;</c>, or a
+    /// <c>JsonElement</c>. This handles all three so the bridge doesn't crash on a value
+    /// it wrote itself.
+    /// </summary>
+    private static IReadOnlyList<string> ReadRoutingHints(IDictionary<string, object> properties)
+    {
+        if (!properties.TryGetValue(CompositeAgentScaffoldService.RoutingHintsPropertyKey, out var raw) || raw is null)
+            return Array.Empty<string>();
+
+        switch (raw)
+        {
+            case IReadOnlyList<string> typed:
+                return typed;
+            case IEnumerable<object> objs:
+                return objs.Select(o => o?.ToString() ?? string.Empty).Where(s => s.Length > 0).ToArray();
+            case System.Text.Json.JsonElement element when element.ValueKind == System.Text.Json.JsonValueKind.Array:
+                return element.EnumerateArray()
+                    .Where(e => e.ValueKind == System.Text.Json.JsonValueKind.String)
+                    .Select(e => e.GetString()!)
+                    .Where(s => !string.IsNullOrEmpty(s))
+                    .ToArray();
+            default:
+                return Array.Empty<string>();
+        }
     }
 }

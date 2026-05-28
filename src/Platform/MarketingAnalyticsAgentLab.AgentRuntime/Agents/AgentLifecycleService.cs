@@ -255,7 +255,14 @@ public sealed class AgentLifecycleService(
             DisplayName: def.DisplayName,
             Description: def.Description,
             Plugins: pluginNames,
-            Tools: tools.Select(t => t.Name).ToArray());
+            Tools: tools.Select(t => t.Name).ToArray())
+        {
+            // Forward routing hints from the YAML AgentDefinition into the live descriptor
+            // so the Gateway sees the same data for simple agents as it does for the
+            // composite agents the WorkflowAgentBridge synthesizes. Keeps both kinds on
+            // equal footing in the router.
+            RoutingHints = def.RoutingHints?.ToArray() ?? Array.Empty<string>(),
+        };
 
         return (agent, descriptor, allowedToolNames, toolMetadata);
     }
