@@ -114,7 +114,7 @@ function MentalModelSection() {
           <LayerBox
             icon={Bot}
             title="Agent"
-            body="An AI with instructions, a model, and a set of tools it is allowed to use."
+            body="An AI with instructions, a model, and a set of tools it is allowed to use. Two kinds — Standard (one LLM call) or Workflow (a multi-step Elsa workflow under the hood) — both reached through the same /agents/<name>/run API."
             color="brand"
           />
           <LayerBox
@@ -301,7 +301,7 @@ function ConceptsSection() {
   return (
     <SectionShell
       icon={FileText}
-      title="The six things you'll see in the menu"
+      title="The seven things you'll see in the menu"
       lead="One short card per object. Same shape for each, so you can scan."
     >
       <div className="grid gap-4 lg:grid-cols-2">
@@ -349,30 +349,47 @@ function ConceptsSection() {
         />
         <ConceptCard
           icon={Bot}
-          title="Agent"
-          definition="An AI with a name, a model, instructions, and an attached set of Tool Sets it is allowed to use."
-          why="Agents are where domain knowledge lives. Different agents have different personalities and different tools — an analytics agent reads numbers, an optimization agent recommends actions."
+          title="Standard agent"
+          definition="An AI with a name, a model, instructions, and an attached set of Tool Sets it is allowed to use. One LLM call per turn."
+          why="Most useful agents are this shape. They're focused, fast, and easy to reason about: one model, one personality, a fixed pool of tools to call."
           example={
             <>
               <strong>Marketing Analytics Agent</strong> uses gpt-4o-mini, has instructions to be
               concise and data-driven, and is attached to the Marketing Analytics Tool Set.
+              Authored on the Agents page as a small form (name, instructions, model, tool sets).
             </>
           }
-          link={{ href: '/agents', label: 'Agents' }}
+          link={{ href: '/agents', label: 'Agents → + New agent → Standard' }}
         />
         <ConceptCard
           icon={Workflow}
-          title="Workflow"
-          definition="Two or more agents chained so a single prompt yields the combined work — the output of agent N becomes the input of agent N+1."
-          why="Some questions need both data and recommendations, or research and action. Rather than build one giant agent that does everything, we keep each agent focused and compose them into a workflow when the answer needs more than one specialty."
+          title="Workflow agent"
+          definition="An agent whose implementation is a multi-step Elsa workflow — typically chaining two or more standard agents with branching, conditions, or parallel calls. From the caller's perspective it's identical to a standard agent: same /agents/<name>/run URL, same chat-in / answer-out contract."
+          why="Some questions need both data and recommendations, branching logic, or coordinated calls across several specialties. Rather than build one giant agent that does everything, you compose simpler agents visually in the designer. The complexity stays in the workflow; the caller sees one agent."
           example={
             <>
-              <strong>Campaign Insights Workflow</strong> chains the Marketing Analytics Agent
-              (gathers numbers) into the Campaign Optimization Agent (recommends actions). One
-              prompt, one trace, both perspectives.
+              A <strong>Campaign Triage</strong> workflow agent runs the Marketing Analytics Agent
+              first, then branches on its verdict — if AT_RISK, calls the Campaign Optimization
+              Agent for recommendations; if HEALTHY, passes the analysis through. Atlas calls it
+              the same way it calls a standard agent: one POST, one reply.
             </>
           }
-          link={{ href: '/workflows', label: 'Workflows' }}
+          link={{ href: '/agents', label: 'Agents → + New agent → Workflow' }}
+        />
+        <ConceptCard
+          icon={Cable}
+          title="Automation"
+          definition="An event-driven or scheduled Elsa workflow that runs without a chat prompt — HTTP webhooks, timer schedules, long-running pipelines. Same visual designer as workflow agents, different consumption surface."
+          why="Not every workflow is conversational. A nightly campaign-health scan, a webhook handler that enriches an inbound CRM event, a batch pipeline that catches up overnight — these are workflows too, but they have no user typing a prompt. Putting them in a separate section keeps the Agents catalog clean (only chat-style things) and gives ops a clear home for everything fire-and-forget."
+          example={
+            <>
+              A <strong>Nightly Underperformance Scan</strong> automation runs on a Timer trigger
+              every night at 02:00. It loops over yesterday's campaigns, calls the analytics tools
+              for each, and posts any AT_RISK findings to a Slack channel. No user prompt anywhere
+              in the flow — just an event (the timer firing) starting the workflow.
+            </>
+          }
+          link={{ href: '/automations', label: 'Automations' }}
         />
         <ConceptCard
           icon={Users}
@@ -437,10 +454,12 @@ function ConceptCard({ icon: Icon, title, definition, why, example, link }: Conc
 
 function OwnershipSection() {
   const rows: Array<{ object: string; owner: string; what: string }> = [
-    { object: 'API Source',  owner: 'Product team that owns the API',  what: 'Publishes a clean OpenAPI document, follows the API Standards.' },
-    { object: 'Tool Set',    owner: 'Platform or product engineer',    what: 'Groups endpoints into a Tool Set, writes tool names and descriptions, sets auth and permissions, publishes when ready.' },
-    { object: 'Agent',       owner: 'Product engineer',                what: 'Picks the model, writes instructions, attaches published Tool Sets, tests behavior in the Agent Playground.' },
-    { object: 'Assistant',   owner: 'App owner (the product team that integrates with Atlas)', what: 'Decides which agents front the product, picks the default agent, controls when the assistant is enabled.' },
+    { object: 'API Source',      owner: 'Product team that owns the API',  what: 'Publishes a clean OpenAPI document, follows the API Standards.' },
+    { object: 'Tool Set',        owner: 'Platform or product engineer',    what: 'Groups endpoints into a Tool Set, writes tool names and descriptions, sets auth and permissions, publishes when ready.' },
+    { object: 'Standard agent',  owner: 'Product engineer',                what: 'Picks the model, writes instructions, attaches published Tool Sets, tests behavior in the Agent Playground.' },
+    { object: 'Workflow agent',  owner: 'Product engineer',                what: 'Creates a scaffold from the Agents page, opens the Elsa designer to compose steps (chaining, branching, parallel calls), publishes. Same Playground for testing.' },
+    { object: 'Automation',      owner: 'Product or ops engineer',         what: 'Designs an event-driven workflow (HTTP webhook, Timer, etc.) in the Elsa designer. Owns the trigger configuration and the downstream side-effects.' },
+    { object: 'Assistant',       owner: 'App owner (the product team that integrates with Atlas)', what: 'Decides which agents front the product, picks the default agent, controls when the assistant is enabled.' },
   ];
   return (
     <SectionShell
