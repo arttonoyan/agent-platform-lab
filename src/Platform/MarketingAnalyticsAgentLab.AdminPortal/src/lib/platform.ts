@@ -25,6 +25,13 @@ export const platformUrls = {
    * Used for runtime debugging, trace inspection, and workflow visualization.
    */
   devUi: () => `${serviceUrl('agent-runtime')}/devui`,
+  /**
+   * Elsa Studio — the visual workflow designer. Runs as a self-hosted Blazor Server
+   * project (MarketingAnalyticsAgentLab.WorkflowDesigner) and talks to AgentRuntime's
+   * /elsa/api directly from the browser. The Workflows page in the portal iframes
+   * this URL.
+   */
+  elsaStudio: () => serviceUrl('elsa-studio'),
 };
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -100,6 +107,26 @@ export const api = {
   reloadAgents: () =>
     fetchJson<{ reloaded: boolean }>(`${platformUrls.agentRuntime()}/agents/reload`, { method: 'POST' }),
   listLiveAgents: () => fetchJson<LiveAgent[]>(`${platformUrls.agentRuntime()}/agents`),
+  /**
+   * Run any agent (simple or composite) end-to-end. Mirrors the agent-runtime's
+   * POST /agents/{name}/run surface — same payload Atlas posts via the AI Gateway,
+   * but called directly so the AdminPortal can power an inline test playground.
+   */
+  runAgent: (name: string, body: AgentPlaygroundRequest) =>
+    fetchJson<AgentPlaygroundResponse>(`${platformUrls.agentRuntime()}/agents/${encodeURIComponent(name)}/run`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  /**
+   * Create + publish an Elsa workflow scaffold (prompt input + response output, empty
+   * Flowchart root) that the WorkflowAgentBridge will promote to a composite agent on
+   * its next refresh. Powers the "+ New agent → Workflow" flow on the Agents page.
+   */
+  createWorkflowAgent: (body: CreateCompositeAgentRequest) =>
+    fetchJson<CreateCompositeAgentResponse>(`${platformUrls.agentRuntime()}/agents/composite`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   listLiveTools: () => fetchJson<LiveTool[]>(`${platformUrls.mcpServer()}/tools`),
   /**
    * Recent tool executions captured by the McpServer's in-memory ExecutionLog. Used by the
@@ -112,6 +139,18 @@ export const api = {
   listAssistants: () => fetchJson<AssistantDefinition[]>(`${platformUrls.pluginRegistry()}/assistants`),
   saveAssistant: (body: AssistantDefinition) =>
     fetchJson<AssistantDefinition>(`${platformUrls.pluginRegistry()}/assistants`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  // ---- Workflows (multi-agent orchestration) ----
+  // Lives on AgentRuntime, not PluginRegistry, because the runtime is where the live
+  // AIAgent instances are composed into a chain. Today there is one built-in workflow
+  // (CampaignInsightsWorkflow); a registry-backed store can replace the catalog later
+  // without changing this client.
+  listWorkflows: () => fetchJson<WorkflowDefinitionDto[]>(`${platformUrls.agentRuntime()}/workflows`),
+  runWorkflow: (name: string, body: { message: string }) =>
+    fetchJson<WorkflowRunResponse>(`${platformUrls.agentRuntime()}/workflows/${encodeURIComponent(name)}/run`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),
@@ -258,12 +297,68 @@ export interface AgentDefinition {
 export interface UpsertAgentRequest extends Omit<AgentDefinition, 'id'> {
   id?: string;
 }
+/**
+ * One agent surfaced by the agent-runtime. Backed by either:
+ *  - a YAML AgentDefinition wrapped in an in-process AIAgent ("Simple"), or
+ *  - a published Elsa workflow declaring a `prompt` input / `response` output
+ *    ("Composite"). Both kinds are invoked through the same /agents/{name}/run
+ *    endpoint, but composite agents run via the workflow runner and don't expose
+ *    bound tools at the descriptor level.
+ */
 export interface LiveAgent {
   name: string;
   displayName: string;
   description: string;
   plugins: string[];
   tools: string[];
+  kind?: 'Simple' | 'Composite';
+}
+
+/**
+ * Request/response shapes for the inline Agent Playground (POST /agents/{name}/run).
+ * Mirrors AgentRunRequest / AgentRunResponse on the server.
+ * conversationId / tenantId are required by the runtime; the Playground generates a
+ * one-shot UUID for the conversation and uses a fixed dev tenant id so the dashboard
+ * can still attribute the run.
+ */
+export interface AgentPlaygroundRequest {
+  message: string;
+  conversationId: string;
+  tenantId: string;
+  contextJson?: string | null;
+  executionId?: string | null;
+}
+export interface AgentPlaygroundResponse {
+  message: string;
+  toolCalls: AgentToolCall[];
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  latencyMs: number;
+}
+export interface AgentToolCall {
+  plugin: string;
+  tool: string;
+  argumentsJson?: string | null;
+  resultPreview?: string | null;
+  durationMs?: number | null;
+  sourceMethod?: string | null;
+  sourcePath?: string | null;
+  status?: string | null;
+}
+
+/** Inputs for "+ New agent → Workflow" — POSTed to /agents/composite. */
+export interface CreateCompositeAgentRequest {
+  name: string;
+  displayName?: string | null;
+  description?: string | null;
+}
+export interface CreateCompositeAgentResponse {
+  definitionId: string;
+  definitionVersionId: string;
+  name: string;
+  displayName: string;
+  published: boolean;
 }
 export interface LiveTool {
   name: string;
@@ -295,6 +390,45 @@ export interface AssistantDefinition {
   defaultAgentName?: string | null;
   systemPreamble?: string | null;
   enabled: boolean;
+}
+
+// ---- Workflows ----
+// Mirrors WorkflowDefinitionDto in MarketingAnalyticsAgentLab.AgentRuntime.Endpoints.
+export interface WorkflowDefinitionDto {
+  name: string;
+  displayName: string;
+  description: string;
+  agentNames: string[];
+}
+
+// Mirrors AssistantToolCall in MarketingAnalyticsAgentLab.Shared.Interaction. Minimal
+// API JSON serialization camelCases property names by default (Web defaults), so the
+// TS field shape matches the C# record names verbatim, just lower-cased.
+export interface AssistantToolCallDto {
+  plugin: string;
+  tool: string;
+  argumentsJson?: string | null;
+  resultPreview?: string | null;
+  durationMs?: number | null;
+  sourceMethod?: string | null;
+  sourcePath?: string | null;
+  status: string;
+}
+
+export interface WorkflowStepResult {
+  agentName: string;
+  input: string;
+  response: string;
+  toolCalls: AssistantToolCallDto[];
+  durationMs: number;
+}
+
+export interface WorkflowRunResponse {
+  workflowName: string;
+  steps: WorkflowStepResult[];
+  finalResponse: string;
+  totalDurationMs: number;
+  error?: string | null;
 }
 
 /**

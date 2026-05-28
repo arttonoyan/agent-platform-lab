@@ -6,7 +6,16 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <WarningsNotAsErrors>NU1903;CS1591;ASPIRECOMPUTE001;CA1716;CA1707;CA1812;CA1014;CA2007;CA1860;EXTEXP0001</WarningsNotAsErrors>
+    <!-- NU1603 demotion: Elsa.Studio.Core 3.7.0 pins Elsa.Api.Client to a preview build
+         that is no longer on NuGet (the GA version resolves instead, which is fine).
+         Without this, restore fails as an error during clean checkouts.
+         NU1900 demotion: the NuGet package-vulnerability audit (introduced in .NET 8)
+         downloads the CVE database from api.nuget.org during every restore. On flaky
+         networks or behind corporate proxies the request times out and emits NU1900,
+         which TreatWarningsAsErrors turns into a hard build break — but the actual
+         build outputs are fine because the audit is an advisory layer, not a
+         correctness check. Demote so transient network blips don't fail local builds. -->
+    <WarningsNotAsErrors>NU1603;NU1900;NU1903;CS1591;ASPIRECOMPUTE001;CA1716;CA1707;CA1812;CA1014;CA2007;CA1860;EXTEXP0001</WarningsNotAsErrors>
     <AnalysisLevel>latest-default</AnalysisLevel>
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
     <NoWarn>$(NoWarn);CA1014;CA1716;CA1707;CA1812;CA2007;CA1860;CA1304;CA1305;CA1310;CA1819;CA1822;CA1056;CA2227;CA1054;CA1031;CS1591;IDE0290;EXTEXP0001</NoWarn>

@@ -1,0 +1,6 @@
+@* .NET 10 build hint: the presence of ANY .razor file in this project triggers the
+   MSBuild logic that emits _framework/blazor.server.js into the static asset manifest.
+   Without it, the legacy MapBlazorHub() path no longer serves the script and Studio
+   loses all interactivity in .NET 10. We register no actual component here; the file
+   exists purely to flip the build switch.
+   See dotnet/aspnetcore#66059 + #66175 for the root cause discussion. *@

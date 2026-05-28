@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using MarketingAnalyticsAgentLab.ServiceDefaults;
 using MarketingAnalyticsAgentLab.Shared.Plugins;
 
 namespace MarketingAnalyticsAgentLab.McpServer.PluginRegistryClient;
@@ -29,7 +30,10 @@ internal sealed class PluginRegistryClient(IHttpClientFactory httpFactory, ILogg
     public const string CrudClientName = "plugin-registry";
     public const string EventsClientName = "plugin-registry-events";
 
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    // Shared platform JSON options — string-enum aware, matches the producer side.
+    // Required since the platform's ConfigureHttpJsonOptions makes services serialize
+    // enums as string names; consumers without the matching converter blow up reading them.
+    private static readonly JsonSerializerOptions JsonOptions = Extensions.PlatformHttpClientJson;
 
     public async Task<IReadOnlyList<PluginDefinition>> ListPublishedPluginsAsync(CancellationToken ct)
     {

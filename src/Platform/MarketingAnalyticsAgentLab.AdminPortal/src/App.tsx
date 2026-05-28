@@ -1,11 +1,12 @@
 import { NavLink, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
-import { Activity, Bot, Cog, ExternalLink, FlaskConical, Gauge, Map, Sparkles, Users, Wrench } from 'lucide-react';
+import { Activity, Bot, Cog, ExternalLink, FlaskConical, Gauge, Map, Sparkles, Users, Workflow, Wrench } from 'lucide-react';
 import OverviewPage from './pages/OverviewPage';
 import ToolsPage from './pages/ToolsPage';
 import ApiDetailPage from './pages/ApiDetailPage';
 import EndpointDetailPage from './pages/EndpointDetailPage';
 import PluginDetailPage from './pages/PluginDetailPage';
 import AgentsPage from './pages/AgentsPage';
+import WorkflowsPage from './pages/WorkflowsPage';
 import AssistantsPage from './pages/AssistantsPage';
 import ActivityPage from './pages/ActivityPage';
 import DashboardPage from './pages/DashboardPage';
@@ -20,14 +21,22 @@ import { platformUrls } from './lib/platform';
 // "Overview" sits at the very top as the default landing page — a plain-language
 // explainer for first-time visitors (VPs, PMs, partner-team engineers) so they can
 // understand the platform in five minutes before diving into the operational pages.
+// "Automations" replaces the old "Workflows" label. The conceptual cut: anything
+// conversational (prompt-in, answer-out) lives under "Agents" — even multi-step
+// composite agents are bridged into the same Agents list. The Automations section
+// is reserved for event-driven / scheduled work (Timer triggers, webhook handlers,
+// long-running pipelines) where the user doesn't sit waiting for an answer. The
+// Elsa designer is the authoring tool for both, but operators consume them in two
+// different places that match their mental model.
 const nav = [
-  { to: '/overview',   label: 'Overview',   icon: Map },
-  { to: '/dashboard',  label: 'Dashboard',  icon: Gauge },
-  { to: '/tools',      label: 'Tools',      icon: Wrench },
-  { to: '/agents',     label: 'Agents',     icon: Bot },
-  { to: '/assistants', label: 'Assistants', icon: Users },
-  { to: '/activity',   label: 'Activity',   icon: Activity },
-  { to: '/settings',   label: 'Settings',   icon: Cog },
+  { to: '/overview',    label: 'Overview',    icon: Map },
+  { to: '/dashboard',   label: 'Dashboard',   icon: Gauge },
+  { to: '/tools',       label: 'Tools',       icon: Wrench },
+  { to: '/agents',      label: 'Agents',      icon: Bot },
+  { to: '/automations', label: 'Automations', icon: Workflow },
+  { to: '/assistants',  label: 'Assistants',  icon: Users },
+  { to: '/activity',    label: 'Activity',    icon: Activity },
+  { to: '/settings',    label: 'Settings',    icon: Cog },
 ];
 
 export default function App() {
@@ -99,8 +108,14 @@ export default function App() {
               users learn the new nested URL — accepted because the new IA spec wants
               everything under /tools/tool-sets/<id>. */}
 
-          <Route path="/agents"     element={<AgentsPage />} />
-          <Route path="/assistants" element={<AssistantsPage />} />
+          <Route path="/agents"              element={<AgentsPage />} />
+          <Route path="/automations"         element={<WorkflowsPage />} />
+          {/* Legacy redirects: the section is now called Automations and the standalone
+              designer page is a tab inside it. Keep old URLs alive for bookmarks. */}
+          <Route path="/workflows"           element={<Navigate to="/automations" replace />} />
+          <Route path="/workflows/designer"  element={<Navigate to="/automations?tab=designer" replace />} />
+          <Route path="/automations/designer" element={<Navigate to="/automations?tab=designer" replace />} />
+          <Route path="/assistants"          element={<AssistantsPage />} />
           <Route path="/activity"   element={<ActivityPage />} />
           <Route path="/settings"   element={<SettingsPage />} />
         </Routes>

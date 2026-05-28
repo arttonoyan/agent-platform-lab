@@ -26,6 +26,13 @@
          bump to the EF Core client doesn't require touching AspireVersion. -->
     <AspireNpgsqlEFVersion>13.2.3</AspireNpgsqlEFVersion>
     <AspirePostgresHostingVersion>$(AspireVersion)</AspirePostgresHostingVersion>
+
+    <!-- Elsa 3.7.0 (May 2026) is additive on top of 3.6.0 for our integration — shells
+         integration, role/user management, activity call-stack APIs, and workflow export
+         are all opt-in. 3.6.2 also pinned Snappier 1.3.1 transitively, silencing the
+         NU1903 vulnerability warning we previously saw on the agent-runtime restore.
+         Release notes: https://github.com/elsa-workflows/elsa-core/releases/tag/3.7.0 -->
+    <ElsaVersion>3.7.0</ElsaVersion>
   </PropertyGroup>
 
   <ItemGroup Label="Aspire">
@@ -94,6 +101,55 @@
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="$(NpgsqlEFVersion)" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="$(EntityFrameworkCoreVersion)" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="$(EntityFrameworkCoreVersion)" />
+  </ItemGroup>
+
+  <ItemGroup Label="Elsa Workflows (visual workflow designer + runtime)">
+    <PackageVersion Include="Elsa" Version="$(ElsaVersion)" />
+    <PackageVersion Include="Elsa.Workflows.Core" Version="$(ElsaVersion)" />
+    <PackageVersion Include="Elsa.Workflows.Management" Version="$(ElsaVersion)" />
+    <PackageVersion Include="Elsa.Workflows.Runtime" Version="$(ElsaVersion)" />
+    <PackageVersion Include="Elsa.Workflows.Api" Version="$(ElsaVersion)" />
+    <PackageVersion Include="Elsa.Persistence.EFCore" Version="$(ElsaVersion)" />
+    <PackageVersion Include="Elsa.Persistence.EFCore.PostgreSql" Version="$(ElsaVersion)" />
+    <!-- Built-in identity module. We use admin/password defaults so Studio's login
+         flow has something to authenticate against. -->
+    <PackageVersion Include="Elsa.Identity" Version="$(ElsaVersion)" />
+    <!-- Expression languages used by workflow authors. JavaScript and Liquid are the
+         two Studio enables by default in its expression-language dropdown; without
+         these packages the dropdown only shows Default/Variable/Input and you can't
+         pipe one activity's output into another's input via an expression.
+         NOTE: 3.7.0 renamed the packages from Elsa.JavaScript / Elsa.Liquid to
+         Elsa.Expressions.* — the old names exist on NuGet up to 3.5.x only. -->
+    <PackageVersion Include="Elsa.Expressions.JavaScript" Version="$(ElsaVersion)" />
+    <PackageVersion Include="Elsa.Expressions.Liquid" Version="$(ElsaVersion)" />
+    <!-- HTTP activities: HTTP Endpoint trigger (starts workflows on inbound requests),
+         HTTP Request (outbound calls), and HTTP Response (reply to the caller). Without
+         this the HTTP category is missing from Studio's activity palette and there's no
+         way to expose a workflow as an API endpoint. -->
+    <PackageVersion Include="Elsa.Http" Version="$(ElsaVersion)" />
+  </ItemGroup>
+
+  <ItemGroup Label="Elsa Studio (self-hosted Blazor Server designer)">
+    <!-- Pinned to the same ElsaVersion as the server so Studio and server speak the
+         same REST API surface. The official Docker image for 3.7.0 isn't published yet
+         (only 3.6.1), so we self-host the designer instead — that also lets us skip
+         the built-in login UI by simply not registering AddElsaIdentity/UI. -->
+    <PackageVersion Include="Elsa.Studio.Core" Version="$(ElsaVersion)" />
+    <PackageVersion Include="Elsa.Studio.Core.BlazorServer" Version="$(ElsaVersion)" />
+    <PackageVersion Include="Elsa.Studio.Shell" Version="$(ElsaVersion)" />
+    <PackageVersion Include="Elsa.Studio.Dashboard" Version="$(ElsaVersion)" />
+    <PackageVersion Include="Elsa.Studio.Workflows" Version="$(ElsaVersion)" />
+    <PackageVersion Include="Elsa.Studio.Workflows.Designer" Version="$(ElsaVersion)" />
+    <PackageVersion Include="Elsa.Studio.Localization" Version="$(ElsaVersion)" />
+    <PackageVersion Include="Elsa.Studio.Localization.BlazorServer" Version="$(ElsaVersion)" />
+    <PackageVersion Include="Elsa.Studio.Translations" Version="$(ElsaVersion)" />
+    <!-- Authentication: the NEW 3.7.0 ElsaIdentity packages (split out from the legacy
+         Elsa.Studio.Login meta-package). These provide the login UI, JWT handler, and
+         all the auth-abstraction services other Studio modules depend on. Matches the
+         pattern used in the official 3.7.0 Elsa.Studio.Host.Server template. -->
+    <PackageVersion Include="Elsa.Studio.Authentication.ElsaIdentity" Version="$(ElsaVersion)" />
+    <PackageVersion Include="Elsa.Studio.Authentication.ElsaIdentity.BlazorServer" Version="$(ElsaVersion)" />
+    <PackageVersion Include="Elsa.Studio.Authentication.ElsaIdentity.UI" Version="$(ElsaVersion)" />
   </ItemGroup>
 
 </Project>

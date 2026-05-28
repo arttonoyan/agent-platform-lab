@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using MarketingAnalyticsAgentLab.ServiceDefaults;
 using MarketingAnalyticsAgentLab.Shared.Agents;
 using MarketingAnalyticsAgentLab.Shared.Assistants;
 using MarketingAnalyticsAgentLab.Shared.Plugins;
@@ -34,7 +35,11 @@ internal sealed class PluginRegistryClient(IHttpClientFactory httpFactory, ILogg
     public const string CrudClientName = "plugin-registry";
     public const string EventsClientName = "plugin-registry-events";
 
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    // Shared platform JSON options — string-enum aware, matches the producer side.
+    // The producer (PluginRegistry) returns enums as their string name; deserializing
+    // with the default JsonSerializerDefaults.Web options would throw on those strings
+    // (default EnumConverter only accepts numbers).
+    private static readonly JsonSerializerOptions Json = Extensions.PlatformHttpClientJson;
 
     public async Task<IReadOnlyList<AgentDefinition>> ListAgentsAsync(CancellationToken ct)
         => await httpFactory.CreateClient(CrudClientName).GetFromJsonAsync<AgentDefinition[]>("/agents", Json, ct) ?? Array.Empty<AgentDefinition>();

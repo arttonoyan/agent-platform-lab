@@ -4,6 +4,8 @@ using MarketingAnalyticsAgentLab.AiAssistantGateway.Clients;
 using MarketingAnalyticsAgentLab.RuntimeTelemetry;
 using MarketingAnalyticsAgentLab.RuntimeTelemetry.Contracts;
 using MarketingAnalyticsAgentLab.ServiceDefaults;
+using MarketingAnalyticsAgentLab.Shared.Abstractions;
+using MarketingAnalyticsAgentLab.Shared.Agents;
 using MarketingAnalyticsAgentLab.Shared.Interaction;
 
 namespace MarketingAnalyticsAgentLab.AiAssistantGateway.Endpoints;
@@ -129,7 +131,27 @@ public static class AssistantInteractionEndpoints
             }
             interaction?.SetTag("assistant.application", assistant.Application);
 
-            var allAgents = await assistantRegistry.ListAgentsAsync(ct);
+            // Candidate set = simple YAML agents (from PluginRegistry) + composite
+            // agents (live in agent-runtime, backed by published Elsa workflows). The
+            // assistant's AgentNames may list either kind; we synthesize a minimal
+            // AgentDefinition for composites so the existing IAgentRouter keeps a
+            // single uniform input type and the dispatch path downstream is unchanged.
+            // Composite agents have no PluginIds / ModelDeployment / Instructions at this
+            // layer — those are owned by the workflow definition inside agent-runtime.
+            var simpleAgents = await assistantRegistry.ListAgentsAsync(ct);
+            var liveAgents = await runtime.ListAgentsAsync(ct);
+            var compositeAsDefs = liveAgents
+                .Where(a => a.Kind == AgentKind.Composite)
+                .Select(a => new AgentDefinition(
+                    Id: Guid.Empty,
+                    Name: a.Name,
+                    DisplayName: a.DisplayName,
+                    Description: a.Description,
+                    Instructions: string.Empty,
+                    ModelDeployment: string.Empty,
+                    PluginIds: Array.Empty<Guid>(),
+                    RoutingHints: null));
+            var allAgents = simpleAgents.Concat(compositeAsDefs).ToArray();
             var candidateNames = new HashSet<string>(assistant.AgentNames, StringComparer.OrdinalIgnoreCase);
             var candidates = allAgents.Where(a => candidateNames.Contains(a.Name)).ToArray();
             if (candidates.Length == 0)

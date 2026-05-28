@@ -1,6 +1,9 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -40,6 +43,25 @@ public static class Extensions
     /// </summary>
     public const string PlatformCorsPolicy = "PlatformDevCors";
 
+    /// <summary>
+    /// Shared <see cref="JsonSerializerOptions"/> instance for every internal HttpClient
+    /// that deserializes JSON returned by another platform service. Mirrors the
+    /// server-side configuration in <see cref="AddServiceDefaults{TBuilder}"/> — most
+    /// importantly, includes <see cref="JsonStringEnumConverter"/> so consumers can read
+    /// enums serialized as either their string name (the platform default) or their
+    /// numeric value (back-compat for any client that hasn't been updated). Without this,
+    /// a service returning <c>"In": "Query"</c> blows up the consumer's deserializer with
+    /// "The JSON value could not be converted to ... PluginParameter".
+    /// </summary>
+    public static readonly JsonSerializerOptions PlatformHttpClientJson = CreatePlatformJsonOptions();
+
+    private static JsonSerializerOptions CreatePlatformJsonOptions()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new JsonStringEnumConverter());
+        return options;
+    }
+
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder)
         where TBuilder : IHostApplicationBuilder
     {
@@ -69,6 +91,17 @@ public static class Extensions
                 .AllowAnyHeader()
                 .AllowAnyMethod()
                 .AllowCredentials());
+        });
+
+        // Serialize C# enums as their string names rather than the default numeric value.
+        // The platform's contract types (AgentKind, PluginStatus, AssistantToolCallStatus,
+        // etc.) flow through JSON to React clients that switch on string literals — without
+        // this every enum-typed field comes across as 0/1/2 and the clients silently fail
+        // to match. ConfigureHttpJsonOptions is the global hook for ASP.NET Core minimal
+        // APIs; controllers pick this up automatically too in net8+.
+        builder.Services.ConfigureHttpJsonOptions(options =>
+        {
+            options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
         });
 
         return builder;

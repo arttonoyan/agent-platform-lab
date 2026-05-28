@@ -9,6 +9,7 @@
     <Project Path="src/Platform/MarketingAnalyticsAgentLab.AgentRuntime/MarketingAnalyticsAgentLab.AgentRuntime.csproj" />
     <Project Path="src/Platform/MarketingAnalyticsAgentLab.McpServer/MarketingAnalyticsAgentLab.McpServer.csproj" />
     <Project Path="src/Platform/MarketingAnalyticsAgentLab.PluginRegistry/MarketingAnalyticsAgentLab.PluginRegistry.csproj" />
+    <Project Path="src/Platform/MarketingAnalyticsAgentLab.WorkflowDesigner/MarketingAnalyticsAgentLab.WorkflowDesigner.csproj" />
     <Project Path="src/Platform/MarketingAnalyticsAgentLab.AppHost/MarketingAnalyticsAgentLab.AppHost.csproj" />
   </Folder>
   <Folder Name="/StandaloneApps/Marketing/">

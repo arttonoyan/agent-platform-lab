@@ -29,6 +29,7 @@
     <ProjectReference Include="..\MarketingAnalyticsAgentLab.McpServer\MarketingAnalyticsAgentLab.McpServer.csproj" />
     <ProjectReference Include="..\MarketingAnalyticsAgentLab.AgentRuntime\MarketingAnalyticsAgentLab.AgentRuntime.csproj" />
     <ProjectReference Include="..\MarketingAnalyticsAgentLab.AiAssistantGateway\MarketingAnalyticsAgentLab.AiAssistantGateway.csproj" />
+    <ProjectReference Include="..\MarketingAnalyticsAgentLab.WorkflowDesigner\MarketingAnalyticsAgentLab.WorkflowDesigner.csproj" />
   </ItemGroup>
 
 </Project>

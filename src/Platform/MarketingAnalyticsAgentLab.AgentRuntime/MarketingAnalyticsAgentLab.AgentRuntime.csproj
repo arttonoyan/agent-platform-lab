@@ -24,6 +24,30 @@
     <PackageReference Include="Microsoft.Agents.AI.DevUI" />
   </ItemGroup>
 
+  <ItemGroup Label="Elsa Workflows (visual designer + runtime)">
+    <!-- Self-host the Elsa server side-by-side with the existing AgentRuntime, so our
+         custom activities (PluginToolActivity, future PluginAgentActivity) load in the
+         same process as the AIAgent registry they invoke. The Elsa Studio designer
+         runs as a separate Aspire container and talks to this process via /elsa/api. -->
+    <PackageReference Include="Elsa" />
+    <PackageReference Include="Elsa.Workflows.Core" />
+    <PackageReference Include="Elsa.Workflows.Management" />
+    <PackageReference Include="Elsa.Workflows.Runtime" />
+    <PackageReference Include="Elsa.Workflows.Api" />
+    <PackageReference Include="Elsa.Persistence.EFCore" />
+    <PackageReference Include="Elsa.Persistence.EFCore.PostgreSql" />
+    <PackageReference Include="Elsa.Identity" />
+    <!-- Expression languages so workflow authors can write JavaScript/Liquid in
+         activity input fields (e.g. {{ Activities.<id>.Result }} to pipe one
+         agent's output into the next agent's prompt). Without these the Studio
+         input dropdown only offers Default/Variable/Input. -->
+    <PackageReference Include="Elsa.Expressions.JavaScript" />
+    <PackageReference Include="Elsa.Expressions.Liquid" />
+    <!-- HTTP activities (HTTP Endpoint trigger + HTTP Request + HTTP Response).
+         Without this the HTTP category is missing from Studio's palette. -->
+    <PackageReference Include="Elsa.Http" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\BuildingBlocks\MarketingAnalyticsAgentLab.ServiceDefaults\MarketingAnalyticsAgentLab.ServiceDefaults.csproj" />
     <ProjectReference Include="..\..\BuildingBlocks\MarketingAnalyticsAgentLab.Shared\MarketingAnalyticsAgentLab.Shared.csproj" />

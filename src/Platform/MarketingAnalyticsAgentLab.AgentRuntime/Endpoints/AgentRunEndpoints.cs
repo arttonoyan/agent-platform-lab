@@ -3,9 +3,15 @@ using System.Net.ServerSentEvents;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using Elsa.Common.Models;
+using Elsa.Workflows.Management;
+using Elsa.Workflows.Options;
+using Elsa.Workflows.Runtime;
 using MarketingAnalyticsAgentLab.AgentRuntime.Agents;
+using MarketingAnalyticsAgentLab.AgentRuntime.Elsa;
 using MarketingAnalyticsAgentLab.AgentRuntime.Options;
 using MarketingAnalyticsAgentLab.RuntimeTelemetry.Chat;
+using MarketingAnalyticsAgentLab.Shared.Abstractions;
 using MarketingAnalyticsAgentLab.Shared.Interaction;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -22,9 +28,20 @@ public static class AgentRunEndpoints
     {
         var agents = app.MapGroup("/agents").WithTags("Agents");
 
-        agents.MapGet("/", (RuntimeAgentRegistry registry) => registry.List())
+        agents.MapGet("/", (RuntimeAgentRegistry liveRegistry, WorkflowAgentRegistry workflowRegistry) =>
+        {
+            // Union of (a) simple AIAgents loaded from YAML and (b) composite agents
+            // wrapping published Elsa workflows. Same descriptor shape — only the Kind
+            // property differs — so Atlas / Playground / Gateway see one unified list.
+            // Simple agents come first to preserve the existing order for callers that
+            // iterate without sorting.
+            var combined = new List<AgentDescriptor>();
+            combined.AddRange(liveRegistry.List());
+            combined.AddRange(workflowRegistry.List());
+            return combined;
+        })
             .WithName("ListAgents")
-            .WithSummary("List all live agents with display name, description, and bound tools.");
+            .WithSummary("List all available agents — simple (single LLM + tools) and composite (multi-step workflow).");
 
         agents.MapPost("/reload", async (AgentLifecycleService lifecycle, CancellationToken ct) =>
         {
@@ -33,6 +50,43 @@ public static class AgentRunEndpoints
         })
             .WithName("ReloadAgents")
             .WithSummary("Force-reload agents from PluginRegistry. Useful when the SSE feed is unavailable.");
+
+        agents.MapGet("/composite/diagnose", async (WorkflowAgentBridge bridge, CancellationToken ct) =>
+            await bridge.DiagnoseAsync(ct))
+            .WithName("DiagnoseCompositeAgents")
+            .WithSummary("Per-workflow report explaining which published workflows the WorkflowAgentBridge promoted to composite agents and why others were skipped.");
+
+        // Create + publish an empty composite-agent scaffold in one shot. The AdminPortal's
+        // "+ New agent → Workflow" flow POSTs here; the response carries the workflow
+        // definition id so the client can deep-link the operator into Elsa Studio focused
+        // on the new workflow for further editing.
+        agents.MapPost("/composite", async (
+            CompositeAgentScaffoldService.CreateCompositeAgentRequest request,
+            CompositeAgentScaffoldService service,
+            WorkflowAgentBridge bridge,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.Name))
+            {
+                return Results.BadRequest(new { error = "name is required." });
+            }
+
+            try
+            {
+                var result = await service.CreateAsync(request, ct);
+                // Force an immediate bridge refresh so the new composite agent shows up
+                // in /agents without waiting for the next 10-s poll tick — the caller's
+                // next listAgents() poll picks it up right away.
+                _ = bridge.DiagnoseAsync(ct);
+                return Results.Ok(result);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        })
+            .WithName("CreateCompositeAgent")
+            .WithSummary("Create + publish a composite agent (wraps an Elsa workflow with the prompt/response shape the bridge expects).");
 
         // Diagnostic-only: connects to MCP and reports exactly what it sees. Surfaces silent
         // failures that the existing TryCreateMcpClient swallows into a LogWarning. Hit this
@@ -99,11 +153,22 @@ public static class AgentRunEndpoints
 
         agents.MapPost("/{name}/run", async (
             RuntimeAgentRegistry registry,
+            WorkflowAgentRegistry workflowRegistry,
+            IServiceProvider services,
             IOptions<AzureOpenAIOptions> openAiOptions,
             string name,
             AgentRunRequest request,
             CancellationToken ct) =>
         {
+            // Composite (workflow-backed) agents take a different path: we hand off to
+            // the Elsa workflow runner instead of an AIAgent. Token usage is still
+            // captured (the workflow's RunAgentActivity steps run inside the same
+            // TokenUsageCapturingChatClient ambient scope).
+            if (workflowRegistry.TryGetWorkflowDefinitionId(name, out var workflowDefinitionId) && workflowDefinitionId is not null)
+            {
+                return await RunWorkflowAgentAsync(name, workflowDefinitionId, request, services, openAiOptions.Value.Deployment, ct);
+            }
+
             if (!registry.TryGet(name, out var agent) || agent is null)
             {
                 return Results.NotFound(new { error = $"Agent '{name}' is not registered." });
@@ -235,5 +300,148 @@ public static class AgentRunEndpoints
         if (resultPreview.Contains("policy.denied", StringComparison.OrdinalIgnoreCase)) return "denied";
         if (resultPreview.StartsWith("{\"error\"", StringComparison.OrdinalIgnoreCase)) return "failed";
         return "succeeded";
+    }
+
+    /// <summary>
+    /// Dispatch handler for composite (workflow-backed) agents. Resolves the published
+    /// workflow graph by its definition id, runs it through Elsa's <see cref="IWorkflowInvoker"/>
+    /// with the user message bound to the workflow's <c>prompt</c> input, and reads the
+    /// <c>response</c> output from the resulting workflow state to return the agent reply.
+    /// Token usage is captured via the same ambient accumulator that simple agents use,
+    /// so the Playground's tokens/cost UI works identically.
+    /// </summary>
+    private static async Task<IResult> RunWorkflowAgentAsync(
+        string agentName,
+        string workflowDefinitionId,
+        AgentRunRequest request,
+        IServiceProvider services,
+        string modelDeployment,
+        CancellationToken ct)
+    {
+        var definitionService = services.GetRequiredService<IWorkflowDefinitionService>();
+        var invoker = services.GetRequiredService<IWorkflowInvoker>();
+        var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("AgentRunEndpoints.Composite");
+
+        var graph = await definitionService.FindWorkflowGraphAsync(workflowDefinitionId, VersionOptions.Published, ct);
+        if (graph is null)
+        {
+            return Results.NotFound(new
+            {
+                error = $"Composite agent '{agentName}' points at workflow '{workflowDefinitionId}', " +
+                        "but no published version of that workflow is currently in the database. " +
+                        "Republish the workflow in Elsa Studio.",
+            });
+        }
+
+        var sw = Stopwatch.StartNew();
+        var usage = new TokenUsageAccumulator { ModelId = modelDeployment };
+
+        // Capturing the accumulator on AsyncLocal lets every IChatClient call inside
+        // the workflow's RunAgentActivity steps fold its token usage in — composite
+        // agents report the aggregate across all internal LLM calls.
+        // Fully-qualified type because the project's own .Elsa namespace shadows the
+        // Elsa.* root when resolving model types from this file's using directives.
+        global::Elsa.Workflows.Models.RunWorkflowResult result;
+        using (TokenUsageCapturingChatClient.Capture(usage))
+        {
+            result = await invoker.InvokeAsync(graph, new RunWorkflowOptions
+            {
+                Input = new Dictionary<string, object> { ["prompt"] = request.Message ?? string.Empty },
+            }, ct);
+        }
+        sw.Stop();
+
+        // Reading the workflow's reply happens in two stages, in priority order:
+        //   1. WorkflowState.Output["response"] — populated when the author explicitly
+        //      wired the workflow-level output (e.g. via a Finish/Set Output activity).
+        //      This is the canonical path and the right thing to use for multi-step
+        //      workflows where multiple activities might contribute partial state.
+        //   2. Last activity's Result — for the common "wrap one agent" case the author
+        //      hasn't wired the workflow output at all; the agent activity's Result is
+        //      sitting in the ActivityOutputRegister but never propagated to the
+        //      workflow output dictionary. Reading the most recently produced Result
+        //      makes the simplest possible composite-agent (a workflow with one Run
+        //      Agent step) work without any extra wiring on the author's part.
+        // If both fail, we log the full output snapshot so the operator can see exactly
+        // what the workflow produced and why we couldn't find a reply.
+        var workflowOutput = TryReadResponseFromOutputs(result.WorkflowState.Output);
+
+        if (string.IsNullOrEmpty(workflowOutput))
+        {
+            workflowOutput = TryReadResponseFromLastActivity(result);
+        }
+
+        if (string.IsNullOrEmpty(workflowOutput))
+        {
+            var outputs = result.WorkflowState.Output;
+            var keys = outputs is null ? "<null dictionary>" : string.Join(", ", outputs.Keys);
+            var values = outputs is null
+                ? "<null>"
+                : string.Join("; ", outputs.Select(kv => $"{kv.Key}={Stringify(kv.Value)}"));
+            logger.LogWarning(
+                "Composite agent '{Agent}' ran but no string response was found. " +
+                "WorkflowState.Output keys: [{Keys}]. Full snapshot: [{Values}]. " +
+                "Add a Finish/Set Output activity that writes to the workflow output named 'response', " +
+                "or ensure the final activity produces a string Result.",
+                agentName, keys, values);
+        }
+
+        return Results.Ok(new AgentRunResponse(
+            Message: workflowOutput,
+            ToolCalls: Array.Empty<AssistantToolCall>(),
+            Model: usage.ModelId,
+            InputTokens: usage.InputTokens,
+            OutputTokens: usage.OutputTokens,
+            LatencyMs: (int)sw.ElapsedMilliseconds));
+    }
+
+    /// <summary>
+    /// Trims long output values to keep the diagnostic log line readable. Run a workflow
+    /// that produces a 50KB JSON blob in an output variable and you don't want that
+    /// blob in every log line — just enough to identify the value.
+    /// </summary>
+    private static string Stringify(object? value)
+    {
+        if (value is null) return "<null>";
+        var s = value.ToString() ?? string.Empty;
+        return s.Length > 120 ? s[..120] + "..." : s;
+    }
+
+    /// <summary>
+    /// Canonical path: read the workflow output named <c>response</c>. Returns empty
+    /// when the author hasn't explicitly wired the workflow's `response` output, which
+    /// is the common case for a one-activity scaffold.
+    /// </summary>
+    private static string TryReadResponseFromOutputs(IDictionary<string, object>? outputs)
+    {
+        if (outputs is null) return string.Empty;
+        return outputs.TryGetValue("response", out var responseObj) && responseObj is not null
+            ? responseObj.ToString() ?? string.Empty
+            : string.Empty;
+    }
+
+    /// <summary>
+    /// Fallback path: walk the execution journal in reverse and return the first
+    /// activity's Result that resolves to a non-empty string. This covers the simple
+    /// "Hello Agent" shape — workflow has one Run Agent step, no explicit output
+    /// binding — so the user gets the reply they expect without authoring boilerplate.
+    /// Multi-step workflows that produce intermediate strings still pick the LAST one
+    /// (which is normally the terminal step's result).
+    /// </summary>
+    private static string TryReadResponseFromLastActivity(global::Elsa.Workflows.Models.RunWorkflowResult result)
+    {
+        var register = result.WorkflowExecutionContext.GetActivityOutputRegister();
+        // ActivityExecutionContexts is in execution order; iterate from the end so the
+        // most recently completed activity wins. The "Result" key is Elsa's default
+        // output name for CodeActivity<T> — see ActivityOutputRegister.DefaultOutputName.
+        foreach (var ctx in result.Journal.ActivityExecutionContexts.Reverse())
+        {
+            var value = register.FindOutputByActivityInstanceId(ctx.Id, "Result");
+            if (value is string s && !string.IsNullOrWhiteSpace(s))
+            {
+                return s;
+            }
+        }
+        return string.Empty;
     }
 }

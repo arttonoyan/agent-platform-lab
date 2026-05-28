@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <IsAspNetCoreProject>true</IsAspNetCoreProject>
+    <RootNamespace>MarketingAnalyticsAgentLab.WorkflowDesigner</RootNamespace>
+    <UserSecretsId>marketing-analytics-agent-lab-workflow-designer</UserSecretsId>
+    <!--
+      .NET 10 breaking change (dotnet/aspnetcore#66059 / #66175): Razor Pages + Blazor
+      Server projects that bring their components from external RCLs (like Elsa.Studio
+      does) no longer have blazor.server.js included in the build's static asset
+      manifest, because the MSBuild rules look for .razor files in THIS project before
+      registering Blazor framework assets. This project has none — every page comes
+      from Elsa.Studio.* RCLs — so we have to opt in explicitly. Without this,
+      blazor.server.js returns 404 at runtime and the whole Studio is dead-clickable
+      (HTML renders, no SignalR circuit ever connects).
+    -->
+    <EnableDefaultRazorComponentItems>true</EnableDefaultRazorComponentItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\BuildingBlocks\MarketingAnalyticsAgentLab.ServiceDefaults\MarketingAnalyticsAgentLab.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Label="Elsa Studio (self-hosted, ElsaIdentity auth)">
+    <!-- Core Studio runtime: services, shell, modules. Auth is handled by the
+         Elsa.Studio.Authentication.ElsaIdentity.* packages below (default
+         admin/password against AgentRuntime's Elsa.Identity backend). -->
+    <PackageReference Include="Elsa.Studio.Core" />
+    <PackageReference Include="Elsa.Studio.Core.BlazorServer" />
+    <PackageReference Include="Elsa.Studio.Shell" />
+    <PackageReference Include="Elsa.Studio.Dashboard" />
+    <PackageReference Include="Elsa.Studio.Workflows" />
+    <PackageReference Include="Elsa.Studio.Workflows.Designer" />
+    <PackageReference Include="Elsa.Studio.Localization" />
+    <PackageReference Include="Elsa.Studio.Localization.BlazorServer" />
+    <PackageReference Include="Elsa.Studio.Translations" />
+    <!-- Auth: the NEW 3.7.0 ElsaIdentity packages (the legacy Elsa.Studio.Login
+         packages were the previous default; 3.7.0's official template moved to these).
+         These bring the login UI, JWT handler, and all the auth-abstraction services
+         (IUnauthorizedComponentProvider, IHttpConnectionOptionsConfigurator, etc.) that
+         Workflows + Designer modules depend on. -->
+    <PackageReference Include="Elsa.Studio.Authentication.ElsaIdentity" />
+    <PackageReference Include="Elsa.Studio.Authentication.ElsaIdentity.BlazorServer" />
+    <PackageReference Include="Elsa.Studio.Authentication.ElsaIdentity.UI" />
+  </ItemGroup>
+
+</Project>

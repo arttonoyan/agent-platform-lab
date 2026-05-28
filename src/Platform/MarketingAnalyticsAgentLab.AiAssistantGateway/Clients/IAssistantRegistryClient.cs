@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using MarketingAnalyticsAgentLab.ServiceDefaults;
 using MarketingAnalyticsAgentLab.Shared.Agents;
 using MarketingAnalyticsAgentLab.Shared.Assistants;
 
@@ -19,7 +20,8 @@ public interface IAssistantRegistryClient
 
 internal sealed class AssistantRegistryClient(HttpClient http) : IAssistantRegistryClient
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    // Shared platform JSON options — string-enum aware, matches the producer side.
+    private static readonly JsonSerializerOptions Json = Extensions.PlatformHttpClientJson;
 
     public Task<AssistantDefinition?> GetAssistantAsync(string assistantId, CancellationToken ct)
         => http.GetFromJsonAsync<AssistantDefinition>($"/assistants/{Uri.EscapeDataString(assistantId)}", Json, ct);

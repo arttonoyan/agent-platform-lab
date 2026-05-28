@@ -1,9 +1,11 @@
 using MarketingAnalyticsAgentLab.AgentRuntime.Agents;
 using MarketingAnalyticsAgentLab.AgentRuntime.AiPlayground;
 using MarketingAnalyticsAgentLab.AgentRuntime.DevUi;
+using MarketingAnalyticsAgentLab.AgentRuntime.Elsa;
 using MarketingAnalyticsAgentLab.AgentRuntime.Endpoints;
 using MarketingAnalyticsAgentLab.AgentRuntime.Options;
 using MarketingAnalyticsAgentLab.AgentRuntime.PluginRegistryClient;
+using MarketingAnalyticsAgentLab.AgentRuntime.Workflows;
 using MarketingAnalyticsAgentLab.ServiceDefaults;
 using MarketingAnalyticsAgentLab.Shared;
 using MarketingAnalyticsAgentLab.Shared.Abstractions;
@@ -51,6 +53,19 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<AgentLifecycleServ
 builder.Services.AddSingleton<PluginAiPlaygroundService>();
 builder.Services.AddHttpClient("ai-playground-downstream");
 
+// Multi-agent workflows catalog. Today this is a static list of one built-in
+// (CampaignInsightsWorkflow); when a WorkflowDefinition store lands in PluginRegistry
+// we just point this at it and the Admin Portal page works unchanged.
+builder.Services.AddSingleton<WorkflowCatalog>();
+
+// ---------------------------------------------------------------------------------------------
+// Elsa Workflows server. Self-hosted alongside AgentRuntime so our custom InvokeTool activity
+// can call the platform's Tool Runtime in-process. Persistence is the Aspire-provisioned
+// "elsa" Postgres database; the Studio designer runs as a separate Aspire container and
+// reaches this server via the /elsa/api endpoint mapped further down in the pipeline.
+// ---------------------------------------------------------------------------------------------
+builder.AddPlatformElsa();
+
 // ---------------------------------------------------------------------------------------------
 // Microsoft Agent Framework DevUI - runtime debugging surface. Adds OpenAI Responses +
 // Conversations + DevUI dashboard. Development-only to keep production attack surface minimal.
@@ -72,6 +87,8 @@ if (app.Environment.IsDevelopment())
 
 app.MapAgentRunEndpoints();
 app.MapPluginPlaygroundEndpoints();
+app.MapWorkflowEndpoints();
+app.MapPlatformElsa();
 
 if (app.Environment.IsDevelopment())
 {

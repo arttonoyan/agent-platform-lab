@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   Sparkles,
   Users,
+  Workflow,
   Wrench,
   Zap,
 } from 'lucide-react';
@@ -300,7 +301,7 @@ function ConceptsSection() {
   return (
     <SectionShell
       icon={FileText}
-      title="The five things you'll see in the menu"
+      title="The six things you'll see in the menu"
       lead="One short card per object. Same shape for each, so you can scan."
     >
       <div className="grid gap-4 lg:grid-cols-2">
@@ -358,6 +359,20 @@ function ConceptsSection() {
             </>
           }
           link={{ href: '/agents', label: 'Agents' }}
+        />
+        <ConceptCard
+          icon={Workflow}
+          title="Workflow"
+          definition="Two or more agents chained so a single prompt yields the combined work — the output of agent N becomes the input of agent N+1."
+          why="Some questions need both data and recommendations, or research and action. Rather than build one giant agent that does everything, we keep each agent focused and compose them into a workflow when the answer needs more than one specialty."
+          example={
+            <>
+              <strong>Campaign Insights Workflow</strong> chains the Marketing Analytics Agent
+              (gathers numbers) into the Campaign Optimization Agent (recommends actions). One
+              prompt, one trace, both perspectives.
+            </>
+          }
+          link={{ href: '/workflows', label: 'Workflows' }}
         />
         <ConceptCard
           icon={Users}
