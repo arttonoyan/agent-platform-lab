@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.AI;
 
@@ -5,10 +6,16 @@ namespace MarketingAnalyticsAgentLab.RuntimeTelemetry.Chat;
 
 /// <summary>
 /// <see cref="DelegatingChatClient"/> that captures token usage from every chat completion
-/// flowing through it and folds it into the ambient <see cref="TokenUsageAccumulator"/>.
-/// The accumulator is published via an <c>AsyncLocal</c> so the entire agent run (across
-/// multiple LLM turns + tool calls) accumulates into one record without callers having to
-/// thread a context object through.
+/// flowing through it and folds it into every active ambient <see cref="TokenUsageAccumulator"/>.
+/// Accumulators are published via an <c>AsyncLocal</c> stack so nested scopes — e.g. a
+/// workflow-level accumulator wrapping an activity-level accumulator wrapping an agent run —
+/// all see the same data without any caller threading state through.
+///
+/// Stacking matters for composite (workflow-backed) agents: the outer scope in
+/// AgentRunEndpoints captures the workflow's TOTAL token cost; each RunAgentActivity inside
+/// the workflow opens its own inner scope for per-step JournalData. Without stacking, the
+/// inner scope would overwrite the AsyncLocal and the outer accumulator would observe zero
+/// — which is exactly the bug this class was originally written without protecting against.
 ///
 /// Pattern follows Microsoft.Extensions.AI's middleware guidance: wrap the inner
 /// <c>IChatClient</c> in a builder pipeline, observe every response, and pass the data
@@ -16,18 +23,20 @@ namespace MarketingAnalyticsAgentLab.RuntimeTelemetry.Chat;
 /// </summary>
 public sealed class TokenUsageCapturingChatClient(IChatClient inner) : DelegatingChatClient(inner)
 {
-    private static readonly AsyncLocal<TokenUsageAccumulator?> Current = new();
+    private static readonly AsyncLocal<ImmutableList<TokenUsageAccumulator>?> Current = new();
 
     /// <summary>
-    /// Publishes the accumulator on the current async flow. Dispose to clear it.
-    /// Calls made inside this scope (including nested LLM turns from agent tool loops)
-    /// observe their token usage being added to the accumulator.
+    /// Publishes the accumulator on the current async flow. Dispose to pop it back off.
+    /// Calls made inside this scope (including nested LLM turns from agent tool loops) are
+    /// observed by THIS accumulator AND every accumulator established by enclosing
+    /// scopes. Safe to nest arbitrarily.
     /// </summary>
     public static IDisposable Capture(TokenUsageAccumulator accumulator)
     {
         ArgumentNullException.ThrowIfNull(accumulator);
-        Current.Value = accumulator;
-        return new Releaser();
+        var previous = Current.Value;
+        Current.Value = (previous ?? ImmutableList<TokenUsageAccumulator>.Empty).Add(accumulator);
+        return new Releaser(previous);
     }
 
     public override async Task<ChatResponse> GetResponseAsync(
@@ -55,37 +64,39 @@ public sealed class TokenUsageCapturingChatClient(IChatClient inner) : Delegatin
 
     private static void Capture(ChatResponse response)
     {
-        if (Current.Value is not { } acc) return;
+        var stack = Current.Value;
+        if (stack is null || stack.Count == 0) return;
         if (response.Usage is { } usage)
         {
-            acc.Add(usage);
+            foreach (var acc in stack) acc.Add(usage);
         }
         if (!string.IsNullOrEmpty(response.ModelId))
         {
-            acc.ModelId = response.ModelId;
+            foreach (var acc in stack) acc.ModelId = response.ModelId;
         }
     }
 
     private static void Capture(ChatResponseUpdate update)
     {
-        if (Current.Value is not { } acc) return;
+        var stack = Current.Value;
+        if (stack is null || stack.Count == 0) return;
 
         foreach (var content in update.Contents)
         {
             if (content is UsageContent usage)
             {
-                acc.Add(usage.Details);
+                foreach (var acc in stack) acc.Add(usage.Details);
             }
         }
         if (!string.IsNullOrEmpty(update.ModelId))
         {
-            acc.ModelId = update.ModelId;
+            foreach (var acc in stack) acc.ModelId = update.ModelId;
         }
     }
 
-    private sealed class Releaser : IDisposable
+    private sealed class Releaser(ImmutableList<TokenUsageAccumulator>? previous) : IDisposable
     {
-        public void Dispose() => Current.Value = null;
+        public void Dispose() => Current.Value = previous;
     }
 }
 
